@@ -10,6 +10,8 @@
 3. [data-model.md](data-model.md) — 所有权与多源聚合
 4. [task-system.md](task-system.md) — 任务边界与 Worker
 
+定制开发与上游同步见 [customization.md](customization.md)。
+
 | 要做的事 | 文档 |
 |---------|------|
 | 撰写注释 / 文档 / 提交说明 / 对话 | [writing.md](writing.md) (最高优先级) |
