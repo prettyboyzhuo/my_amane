@@ -13,7 +13,7 @@ export function itemNumberKey(item: FeedItemResponse): string | null {
   return number.toLowerCase();
 }
 
-/** 列表已按时间新→旧; 同番号保留首条, 其余挂到 duplicates. */
+/** 列表已按时间新→旧; 同番号保留首条, 其余归入 duplicates. */
 export function dedupeFeedItems(items: readonly FeedItemResponse[]): DedupedFeedItem[] {
   const seen = new Map<string, DedupedFeedItem>();
   const result: DedupedFeedItem[] = [];

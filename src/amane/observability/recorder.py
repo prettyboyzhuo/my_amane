@@ -1,9 +1,4 @@
-"""单任务 Recorder - 叙事日志与结构化产物同一目录, 同一生命周期.
-
-顶层门面: 已改造的 handler 只调 Recorder (内部再打 structlog).
-未改造的代码仍可直接 logger; Worker begin 后 FileHandler 已挂上, 同样进 task.log.
-WebClient 经 ContextVar 挂接 HTTP 缓冲.
-"""
+"""叙事日志与结构化产物同一目录、同一生命周期. WebClient 经 ContextVar 接入 HTTP 缓冲."""
 
 from __future__ import annotations
 
@@ -46,12 +41,12 @@ _task_id_ctx: ContextVar[int | None] = ContextVar("task_id", default=None)
 
 
 def get_recorder() -> Recorder | None:
-    """当前任务的 Recorder; 无 begin 时为 None (WebClient / 基础设施用)."""
+    """无 begin 时为 None."""
     return _recorder_ctx.get()
 
 
 def current() -> Recorder | _LogOnly:
-    """Handler 入口: 有任务上下文返回 Recorder, 否则退回仅转发 logger 的空壳."""
+    """无任务上下文时退回仅转发 logger 的空壳."""
     return _recorder_ctx.get() or _LogOnly(_log)
 
 
@@ -60,8 +55,6 @@ def get_task_id() -> int | None:
 
 
 class TaskIdFilter(logging.Filter):
-    """只允许当前 ContextVar 匹配指定 task_id 的日志通过."""
-
     def __init__(self, task_id: int) -> None:
         super().__init__()
         self._task_id = task_id
@@ -92,7 +85,7 @@ class _PendingExchange:
 
 @dataclass(frozen=True, slots=True)
 class _LogOnly:
-    """无 Recorder.begin 时: 叙事转发 logger, 结构化落盘空操作."""
+    """无 begin 时叙事转发 logger, 结构化落盘为空操作."""
 
     _logger: Any
 
@@ -136,10 +129,7 @@ class _LogOnly:
 
 
 class Recorder:
-    """单任务记录: task.log + 配置快照 + HTTP 原文 + scrape 摘要.
-
-    叙事方法 (debug/info/...) 内部走 structlog, 由本实例安装的 FileHandler 写入 task.log.
-    """
+    """叙事方法经 structlog, 由本实例安装的 FileHandler 写入 task.log."""
 
     def __init__(self, root: Path, task_id: int):
         self.root = root
@@ -159,7 +149,7 @@ class Recorder:
         assert task.id is not None
         root = task_dir_for(log_dir, task.id)
         root.mkdir(parents=True, exist_ok=True)
-        (root / "summary.json").unlink(missing_ok=True)  # id 复用时丢掉残留刮削摘要
+        (root / "summary.json").unlink(missing_ok=True)  # id 复用时删除残留刮削摘要
         rec = cls(root, task.id)
         rec._task_id_token = _task_id_ctx.set(task.id)
         rec._recorder_token = _recorder_ctx.set(rec)
@@ -200,7 +190,7 @@ class Recorder:
         attempts: int | None = None,
         capture_body: bool = True,
     ) -> None:
-        """记录一次出站 HTTP, 并写一条紧凑叙事 (body 只进 http/, 不进 task.log)."""
+        """body 只写入 http/, 不写入 task.log."""
         site = _site_from_context()
         self._seq += 1
         seq = self._seq
@@ -244,7 +234,6 @@ class Recorder:
             self.debug("http exchange", **payload)
 
     def update_summary(self, **kwargs: Any) -> None:
-        """更新摘要中的聚合信息 (eligible_sites / sites_queried)."""
         self.summary = self.summary.model_copy(update=kwargs)
 
     def record_site_outcome(
@@ -256,10 +245,7 @@ class Recorder:
         http_status: int | None = None,
         detail: str | None = None,
     ) -> None:
-        """站点抓取结果 (summary.json 与 task report 同源).
-
-        同站点多次上报合并: outcome 取更差; 已写入的 reason 不被后续兜底覆盖.
-        """
+        """同站点多次上报合并: outcome 取更差; 已写入的 reason 不被后续默认值覆盖."""
         existing = self.summary.outcomes.get(site)
         if existing is None:
             record = SiteOutcomeRecord(
@@ -291,7 +277,6 @@ class Recorder:
         error: str | None,
         debug_capture: bool,
     ) -> None:
-        """关闭日志 handler 后落盘摘要 / HTTP / manifest."""
         try:
             self._close_log_handler()
             self._write_task_snapshot(task)
@@ -448,5 +433,5 @@ def _worse_outcome(a: SiteOutcomeKind, b: SiteOutcomeKind) -> SiteOutcomeKind:
     return a if order[a] >= order[b] else b
 
 
-# WebClient 经 bind 查找当前任务 Recorder, 避免 net → observability 硬依赖.
+# 避免 net → observability 硬依赖
 bind_http_recorder_lookup(get_recorder)

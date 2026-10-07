@@ -8,58 +8,63 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from pydantic import ValidationError
+
 
 class FailureKind(StrEnum):
-    """出站请求失败的结构化分类 (语义承载在 kind/status, message 仅供展示)."""
+    """语义在 kind/status, message 仅供展示."""
 
     HTTP_STATUS = "http_status"
-    """HTTP 状态 >= 400 (status 字段给出具体码)."""
+    """status 给出具体码."""
     TIMEOUT = "timeout"
     CURL = "curl"
-    """传输层错误."""
     UNEXPECTED = "unexpected"
 
 
 @dataclass(frozen=True, slots=True)
 class RequestFailure:
-    """一次出站请求失败的结构化描述."""
-
     kind: FailureKind
     message: str
-    """人类可读描述 (日志/展示用, 不承诺可解析语义)."""
+    """日志/展示用, 不承诺可解析语义."""
     status: int | None = None
-    """HTTP 状态码 (kind=HTTP_STATUS 时必有)."""
+    """kind=HTTP_STATUS 时必有."""
     body: bytes | None = None
-    """失败响应正文 (截断), 拦截判定用."""
+    """截断后的失败响应正文, 拦截判定用."""
+    reason: FailureReason | None = None
+    """失败语义已知时直接给出, 跳过正文启发式. 浏览器后端用它表达挑战未解决等下游无法从正文判定的失败."""
 
 
 class FailureReason(StrEnum):
-    """来源抓取失败的结构化原因 (summary.json / task report 的 reason 字段)."""
+    """summary.json / task report 的 reason 字段."""
 
     HTTP_ERROR = "http_error"
-    """4xx/5xx 兜底 (具体状态码在 http_status)."""
+    """其余 4xx/5xx; 具体状态码在 http_status."""
+    API_ERROR = "api_error"
+    """HTTP 状态正常而应答体表示失败 (GraphQL errors 等); 状态码不是失败原因, 因此不写 http_status."""
     NOT_FOUND = "not_found"
     RATE_LIMITED = "rate_limited"
     SERVER_ERROR = "server_error"
     TIMEOUT = "timeout"
     NETWORK = "network"
     CLOUDFLARE_CHALLENGE = "cloudflare_challenge"
-    """挑战页 ("Just a moment")."""
+    """Just a moment 挑战页."""
     CLOUDFLARE_BLOCKED = "cloudflare_blocked"
-    """拦截页 (Ray ID, 无挑战)."""
+    """Ray ID 拦截页, 无挑战."""
     IP_BANNED = "ip_banned"
     GEO_RESTRICTED = "geo_restricted"
     AGE_VERIFICATION = "age_verification"
     EMPTY_RESPONSE = "empty_response"
     NO_USABLE_METADATA = "no_usable_metadata"
-    """请求成功但未解析出元数据 (区别于 NOT_FOUND 的 HTTP 404)."""
+    """请求成功但未解析出元数据; 区别于 NOT_FOUND 的 HTTP 404."""
+    PARSE_ERROR = "parse_error"
+    """响应与读模型不符 (字段缺失/类型变化); 通常意味着站点 schema 已变更."""
     CRAWLER_UNAVAILABLE = "crawler_unavailable"
-    """爬虫实例缺失 (演员侧)."""
+    """来源实例缺失或构造失败 (配置与插件不再匹配等)."""
     UNEXPECTED = "unexpected"
 
 
 class SourceError(Exception):
-    """来源可分类的失败. 由 invoke_source 写入站点 outcome, 不视为整任务崩溃."""
+    """由 invoke_source 写入站点 outcome, 不视为整任务崩溃."""
 
     def __init__(
         self,
@@ -77,8 +82,6 @@ class SourceError(Exception):
 
 
 class RequestError(SourceError):
-    """出站请求在重试用尽后仍失败."""
-
     def __init__(self, url: str, failure: RequestFailure | str | None = None) -> None:
         self.url = url
         if isinstance(failure, RequestFailure):
@@ -95,6 +98,15 @@ class RequestError(SourceError):
         Exception.__init__(self, f"{url}: {self.message}")
 
 
+def parse_detail(exc: ValidationError) -> str:
+    """把读模型校验失败压成字段路径 (如 ``data.ppvContent.sample2DMovie``).
+
+    站点响应是外部输入, 只暴露定位所需的位置, 不把 pydantic 全文与内部类名写入 detail.
+    """
+    paths = [".".join(str(part) for part in error["loc"]) for error in exc.errors()]
+    return ", ".join(dict.fromkeys(path for path in paths if path)) or "unknown"
+
+
 def _status_reason(status: int) -> FailureReason:
     if status == 404:
         return FailureReason.NOT_FOUND
@@ -106,7 +118,7 @@ def _status_reason(status: int) -> FailureReason:
 
 
 def classify_block(text: str, *, failure: RequestFailure | None = None) -> FailureReason | None:
-    """正文启发式优先 (含失败响应正文), 状态码兜底, 空响应最后."""
+    """正文启发式优先, 再按状态码分类, 空响应最后."""
     if text:
         reason = _classify_text(text)
         if reason is not None:
@@ -128,10 +140,15 @@ def _classify_text(text: str) -> FailureReason | None:
         return FailureReason.GEO_RESTRICTED
     if "banned your access" in lower:
         return FailureReason.IP_BANNED
-    if "ray-id" in lower and "cf-" in lower:
-        return FailureReason.CLOUDFLARE_BLOCKED
+    # 挑战页按平台标记识别, 不依赖页面语言 (本地化标题不含 "just a moment"). ``_cf_chl_opt`` 只在
+    # 挑战页出现: ``challenge-platform`` 亦是正常页面的 JS Detection 脚本, 不能单独作为判据.
+    # 挑战页同样带 ray-id, 因此必须先于封禁页判定.
+    if "_cf_chl_opt" in lower:
+        return FailureReason.CLOUDFLARE_CHALLENGE
     if "just a moment" in lower and "cloudflare" in lower:
         return FailureReason.CLOUDFLARE_CHALLENGE
+    if "ray-id" in lower and "cf-" in lower:
+        return FailureReason.CLOUDFLARE_BLOCKED
     if "driver-verify" in lower:
         return FailureReason.AGE_VERIFICATION
     if "年齢認証" in text or "age verification" in lower:
@@ -140,9 +157,11 @@ def _classify_text(text: str) -> FailureReason | None:
 
 
 def classify_request_error(failure: RequestFailure | None) -> FailureReason:
-    """失败响应正文优先, 无信号按 kind/status 兜底."""
+    """无正文信号时按 kind/status 分类."""
     if failure is None:
         return FailureReason.NETWORK
+    if failure.reason is not None:
+        return failure.reason
     if failure.body:
         reason = _classify_text(failure.body.decode("utf-8", errors="replace"))
         if reason is not None:

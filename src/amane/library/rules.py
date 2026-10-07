@@ -27,25 +27,21 @@ MEDIA_EXTENSIONS = frozenset(
 # 与默认 trailer 模板文件名 `{link_dir}/trailer.mp4` 对齐; 空串表示不跳过.
 DEFAULT_TRAILER_PATTERN = "(?i)trailer"
 
-# ORGANIZE 同目录字幕发现用; 空列表关闭. 不进 MEDIA_EXTENSIONS (字幕不是正片).
+# 空列表关闭字幕发现. 不纳入 MEDIA_EXTENSIONS (字幕不是正片).
 DEFAULT_SUBTITLE_EXTENSIONS: tuple[str, ...] = (".srt", ".ass", ".ssa", ".vtt", ".sub")
 
 _SUBTITLE_EXT_RE = re.compile(r"^\.[a-z0-9]+$")
 
-# 黑名单命中的文件在 ORGANIZE 时移入库根下该目录 (固定保留名, 任何深度都不入库).
+# 固定保留名. 路径任一深度含此目录名则不入库.
 TRASH_DIRNAME = ".amane_trash"
 
-# .strm 在扫描扩展名里 (当正片入口), 但是路径指针不是视频字节; 体积过滤不碰它.
+# .strm 在扫描扩展名里 (当正片入口), 但是路径指针不是视频字节; 体积过滤不把它当视频字节.
 _POINTER_EXTENSIONS = frozenset({".strm"})
 
 
 def compile_skip_patterns(patterns: Sequence[str | None] | None) -> list[Pattern[str]] | None:
-    """逐条编译跳过正则 (预告片 + 黑名单), 任一命中即跳过.
-
-    - 空列表/全是空串返回 None (不跳过)
-    - 非法模式防御性跳过该项 (写入时已校验, 见 validate_regex_pattern)
-    - 逐条编译而非 `|` 拼接: 用户书写全局旗标 (如 `(?i)ads`) 在拼接中间会触发
-      "global flags not at the start of the expression" 而整体编译失败.
+    """逐条编译, 不能用 `|` 拼接: 用户书写的全局旗标 (如 `(?i)ads`) 出现在拼接中间会导致整体编译失败.
+    空列表/全是空串返回 None (不跳过). 非法模式跳过该项.
     """
     compiled: list[Pattern[str]] = []
     for p in patterns or []:
@@ -69,12 +65,10 @@ def validate_regex_pattern(pattern: str, field: str) -> str:
 
 
 def validate_trailer_pattern(pattern: str) -> str:
-    """校验预告片正则; 空串合法 (关闭跳过)."""
     return validate_regex_pattern(pattern, "trailer_pattern")
 
 
 def validate_blacklist_pattern(pattern: str) -> str:
-    """校验黑名单正则; 空串合法 (该项为空, 无效果)."""
     return validate_regex_pattern(pattern, "blacklist_pattern")
 
 
@@ -116,19 +110,18 @@ MinFileSize = Annotated[int, AfterValidator(validate_min_file_size)]
 
 
 def is_video_media(path: Path, media_extensions: frozenset[str] | None = None) -> bool:
-    """后缀是否属于扫描用的视频扩展名白名单 (默认 MEDIA_EXTENSIONS)."""
     extensions = MEDIA_EXTENSIONS if media_extensions is None else media_extensions
     return path.suffix.lower() in extensions
 
 
 def is_undersized_video(path: Path, min_file_size: int, media_extensions: frozenset[str] | None = None) -> bool:
-    """是否为低于阈值的视频文件.
+    """低于阈值的视频文件.
 
     - min_file_size <= 0 视为关闭.
     - 只对扫描视频扩展名判定; 图片 / nfo / 字幕等后缀一律不算.
     - .strm 是路径指针, 体积无意义, 不参与过滤.
     - 软链接跟随目标, 比目标文件字节, 不是链接节点本身.
-    - stat 失败 (含悬空链接) 视为不匹配, 避免把读不到的正片当广告丢掉.
+    - stat 失败 (含悬空链接) 视为不匹配, 不能把读不到的正片当广告丢弃.
     """
     if min_file_size <= 0:
         return False
@@ -144,7 +137,7 @@ def is_undersized_video(path: Path, min_file_size: int, media_extensions: frozen
 
 
 def is_skipped_media(path: Path, pattern: str | None) -> bool:
-    """文件名 (含扩展名) 命中正则则为跳过文件 (预告片/黑名单), 扫描/监控应跳过."""
+    """只匹配文件名 (含扩展名), 不匹配目录段."""
     compiled = compile_skip_patterns([pattern])
     if compiled is None:
         return False

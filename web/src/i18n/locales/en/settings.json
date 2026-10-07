@@ -1,9 +1,5 @@
 {
   "title": "Settings",
-  "sections": {
-    "configuration": "Configuration",
-    "watchPaths": "Watch Paths"
-  },
   "tabs": {
     "scraping": "Movie Scraping",
     "actor_scraping": "Actor Scraping",
@@ -18,6 +14,19 @@
   },
   "config": {
     "loadError": "Failed to load configuration"
+  },
+  "client": {
+    "title": "Client settings",
+    "unavailable": "This page is only available inside the Android shell",
+    "bridgeMissing": "The shell is not responding to page requests. Reinstall or update the app",
+    "server": "Current server",
+    "switchServer": "Switch server",
+    "webView": "System WebView",
+    "chromium": "Rendering engine",
+    "webViewUnknown": "Unknown",
+    "chromiumOutdated": "Rendering engine Chromium {{major}} is below the {{min}} this frontend needs. Update the system WebView, otherwise the layout and styles will be incomplete",
+    "updateWebView": "Open the WebView store page",
+    "appVersion": "APP version"
   },
   "fields": {
     "scraping": {
@@ -44,8 +53,8 @@
         "description": "Auto-crop poster from the cover image"
       },
       "poster_crop_skip_ratio": {
-        "label": "Poster Crop Skip Ratio",
-        "description": "Skip cropping from cover when the poster candidate's height already reaches this fraction of the cover height"
+        "label": "Poster crop skip threshold",
+        "description": "Skip cropping when the existing poster's height exceeds this fraction of the cover height"
       },
       "poster_ratio": {
         "label": "Poster Crop Ratio",
@@ -57,7 +66,7 @@
       },
       "field_priority": {
         "label": "Field Priority",
-        "description": "Override priority for specific fields",
+        "description": "Set priority for specific fields. Other sites in the type route are still requested",
         "options": {
           "title": "Title",
           "actors": "Actors",
@@ -78,6 +87,7 @@
         "$": {
           "options": {
             "airav": "airav",
+            "avbase": "avbase",
             "avsox": "avsox",
             "dahlia": "dahlia",
             "dmm": "dmm",
@@ -107,6 +117,90 @@
           "$": {
             "options": {
               "airav": "airav",
+              "avbase": "avbase",
+              "avsox": "avsox",
+              "dahlia": "dahlia",
+              "dmm": "dmm",
+              "faleno": "faleno",
+              "fc2": "fc2",
+              "fc2club": "fc2club",
+              "fc2ppvdb": "fc2ppvdb",
+              "freejavbt": "freejavbt",
+              "getchu": "getchu",
+              "gfriends": "gfriends",
+              "giga": "giga",
+              "iqqtv": "iqqtv",
+              "jav321": "jav321",
+              "javbus": "javbus",
+              "javdb": "javdb",
+              "javlibrary": "javlibrary",
+              "kin8": "kin8",
+              "mgstage": "mgstage",
+              "minnano": "minnano",
+              "official": "official",
+              "prestige": "prestige",
+              "r18dev": "r18dev",
+              "theporndb": "theporndb",
+              "wikipedia": "wikipedia",
+              "xcity": "xcity"
+            }
+          }
+        }
+      },
+      "field_blacklist": {
+        "label": "Field Blacklist",
+        "description": "Sites a field must not use",
+        "options": {
+          "title": "Title",
+          "actors": "Actors",
+          "tags": "Tags",
+          "release": "Release Date",
+          "runtime": "Runtime",
+          "directors": "Directors",
+          "series": "Series",
+          "studio": "Studio",
+          "publisher": "Publisher",
+          "plot": "Plot",
+          "poster_urls": "Poster",
+          "thumb_urls": "Cover",
+          "trailer_urls": "Trailer",
+          "extrafanart": "Stills",
+          "score": "Score"
+        },
+        "$": {
+          "options": {
+            "airav": "airav",
+            "avbase": "avbase",
+            "avsox": "avsox",
+            "dahlia": "dahlia",
+            "dmm": "dmm",
+            "faleno": "faleno",
+            "fc2": "fc2",
+            "fc2club": "fc2club",
+            "fc2ppvdb": "fc2ppvdb",
+            "freejavbt": "freejavbt",
+            "getchu": "getchu",
+            "gfriends": "gfriends",
+            "giga": "giga",
+            "iqqtv": "iqqtv",
+            "jav321": "jav321",
+            "javbus": "javbus",
+            "javdb": "javdb",
+            "javlibrary": "javlibrary",
+            "kin8": "kin8",
+            "mgstage": "mgstage",
+            "minnano": "minnano",
+            "official": "official",
+            "prestige": "prestige",
+            "r18dev": "r18dev",
+            "theporndb": "theporndb",
+            "wikipedia": "wikipedia",
+            "xcity": "xcity"
+          },
+          "$": {
+            "options": {
+              "airav": "airav",
+              "avbase": "avbase",
               "avsox": "avsox",
               "dahlia": "dahlia",
               "dmm": "dmm",
@@ -166,9 +260,10 @@
       },
       "site_config": {
         "label": "Site Configuration",
-        "description": "Per-source site settings",
+        "description": "Per-site settings",
         "options": {
           "airav": "airav",
+          "avbase": "avbase",
           "avsox": "avsox",
           "dahlia": "dahlia",
           "dmm": "dmm",
@@ -205,20 +300,34 @@
             "description": "Route requests through the configured proxy"
           },
           "use_browser": {
-            "label": "Use Browser",
-            "description": "Use headless browser for scraping (slower but bypasses anti-bot)"
+            "label": "Browser Mode",
+            "options": {
+              "off": "Off",
+              "auto": "Auto",
+              "always": "Always"
+            }
+          },
+          "browser_backend": {
+            "label": "Browser Backend",
+            "description": "Overrides the global backend; off disables the browser for this source",
+            "options": {
+              "off": "Off",
+              "patchright": "Patchright",
+              "camoufox": "Camoufox",
+              "solver": "Solver"
+            }
           },
           "cookie": {
             "label": "Cookie",
-            "description": "Custom cookie string for authentication"
+            "description": "For sites that require sign-in, etc"
           },
           "api_token": {
             "label": "API Token",
-            "description": "API access token"
+            "description": ""
           },
           "official_routes": {
             "label": "Manufacturer Routes",
-            "description": "Map title prefixes to manufacturers",
+            "description": "Map title prefixes to studios",
             "$": {
               "options": {
                 "attackers": "Attackers",
@@ -255,13 +364,13 @@
           },
           "rate_limit": {
             "label": "Rate Limit",
-            "description": "Per-site rate limit override"
+            "description": "Max requests per second for this site"
           }
         }
       },
       "content_routes": {
         "label": "Type Routes",
-        "description": "Sources and default priority for each content type",
+        "description": "Sources and default priority by content type",
         "options": {
           "censored": "Censored",
           "uncensored": "Uncensored",
@@ -274,6 +383,7 @@
         "$": {
           "options": {
             "airav": "airav",
+            "avbase": "avbase",
             "avsox": "avsox",
             "dahlia": "dahlia",
             "dmm": "dmm",
@@ -303,6 +413,7 @@
           "$": {
             "options": {
               "airav": "airav",
+              "avbase": "avbase",
               "avsox": "avsox",
               "dahlia": "dahlia",
               "dmm": "dmm",
@@ -350,17 +461,33 @@
         "label": "Max Connections",
         "description": "Connection pool maximum size"
       },
-      "browser_timeout": {
-        "label": "Browser Timeout",
-        "description": "Headless browser page navigation timeout (milliseconds)"
+      "browser": {
+        "label": "Browser Rendering",
+        "backend": {
+          "label": "Backend",
+          "options": {
+            "off": "Off",
+            "patchright": "Patchright",
+            "camoufox": "Camoufox",
+            "solver": "Solver"
+          }
+        },
+        "timeout": {
+          "label": "Page Request Timeout",
+          "description": "Browser timeout (milliseconds)"
+        },
+        "solver_url": {
+          "label": "Solver URL",
+          "description": "FlareSolverr-compatible service URL; used by the solver backend only"
+        }
       },
       "chunked_threshold": {
         "label": "Chunked Threshold",
-        "description": "File size threshold to enable chunked download (bytes)"
+        "description": "Use chunked download above this size (bytes)"
       },
       "chunk_size": {
         "label": "Chunk Size",
-        "description": "Size of each download chunk (bytes)"
+        "description": "Size of each chunk (bytes)"
       },
       "concurrency": {
         "label": "Download Concurrency",
@@ -368,11 +495,11 @@
       },
       "rate_limits": {
         "label": "Rate Limits",
-        "description": "Per-domain rate limit overrides. Key is hostname (e.g. javdb.com). Takes priority over per-site settings."
+        "description": "Limit request rate by host (e.g. javdb.com). Takes priority over per-site settings"
       },
       "default_rate_limit": {
         "label": "Default Rate Limit",
-        "description": "Default request rate (req/s) for domains without a specific override. Lower priority than per-domain and per-site settings."
+        "description": "Default request rate for sites without an override"
       }
     },
     "worker": {
@@ -400,13 +527,13 @@
       },
       "media_extensions": {
         "label": "Media Extensions",
-        "description": "File extensions whitelist for media file monitoring and scanning"
+        "description": "Media file extensions to watch and scan, comma-separated"
       }
     },
     "sr": {
       "enabled": {
         "label": "Upscale on scrape",
-        "description": "If disabled, you can still upscale in the background with a scheduled task"
+        "description": "If off, you can still upscale later with a scheduled task"
       },
       "max_dim_threshold": {
         "label": "SR Dimension Threshold",
@@ -451,30 +578,35 @@
       },
       "debug_capture": {
         "label": "Debug Capture",
-        "description": "Capture raw responses for all tasks; when off, only failed tasks are captured"
+        "description": "When on, record raw responses for every task; otherwise only failed ones"
       }
     },
     "llm": {
       "enabled": {
         "label": "Enable LLM Translation",
-        "description": "Translate metadata text fields with an LLM during scraping. Skips translation when off"
+        "description": "Translate text fields during scrape"
       },
       "api_key": {
         "label": "API Key",
-        "description": "OpenAI-compatible API key. No translation occurs while empty, even if enabled"
+        "description": ""
+      },
+      "api_type": {
+        "label": "API Type",
+        "options": {
+          "chat": "Chat",
+          "response": "Responses",
+          "anthropic": "Anthropic"
+        }
       },
       "base_url": {
         "label": "API Endpoint",
-        "description": "OpenAI-compatible endpoint URL. May point to a self-hosted or third-party proxy"
+        "description": "OpenAI-compatible API base URL"
       },
       "model": {
         "label": "Model"
       },
-      "max_retries": {
-        "label": "Max Retries"
-      },
       "rate_limit": {
-        "label": "Rate Limit (req/s)"
+        "label": "Max requests per second"
       },
       "translate_fields": {
         "label": "Fields to Translate",
@@ -497,6 +629,32 @@
             "extrafanart": "Stills",
             "score": "Score"
           }
+        }
+      },
+      "system_prompt": {
+        "label": "System Prompt"
+      },
+      "field_prompts": {
+        "label": "Field Prompts",
+        "$": {
+          "label": "Prompt"
+        },
+        "options": {
+          "title": "Title",
+          "actors": "Actors",
+          "tags": "Tags",
+          "release": "Release Date",
+          "runtime": "Runtime",
+          "directors": "Directors",
+          "series": "Series",
+          "studio": "Studio",
+          "publisher": "Publisher",
+          "plot": "Plot",
+          "poster_urls": "Poster",
+          "thumb_urls": "Cover",
+          "trailer_urls": "Trailer",
+          "extrafanart": "Stills",
+          "score": "Score"
         }
       }
     },
@@ -531,8 +689,12 @@
           "xhigh": "Max"
         }
       },
+      "max_tokens": {
+        "label": "Max output tokens",
+        "description": "Per-reply output cap. The provider rejects values above the model's limit"
+      },
       "rate_limit": {
-        "label": "Rate Limit (req/s)",
+        "label": "Max requests per second",
         "description": "See the provider's docs; too high may trigger rate limiting"
       },
       "sql_timeout_ms": {
@@ -563,22 +725,22 @@
       },
       "db_name": {
         "label": "Database Name",
-        "description": "Target database name. Created automatically by the importer"
+        "description": "Database name used on import. Created by the importer"
       },
       "read_user": {
         "label": "Read-only Role",
-        "description": "Read-only role used for runtime queries. Created and granted by the importer"
+        "description": "Read-only account for queries. Created and granted by the importer"
       },
       "read_password": {
         "label": "Read-only Password"
       },
       "read_timeout": {
         "label": "Query Timeout (s)",
-        "description": "Query limit for the read-only role, to prevent runaway queries"
+        "description": ""
       },
       "download_url": {
-        "label": "Dump Download URL",
-        "description": "r18.dev dump download URL, usually a stable redirect to S3"
+        "label": "Data package URL",
+        "description": "r18.dev data package download URL"
       },
       "psql_path": {
         "label": "psql Path"
@@ -616,6 +778,7 @@
       "profile_sites": {
         "label": "Actor Profile Priority",
         "options": {
+          "avbase": "avbase",
           "javdb": "javdb",
           "minnano": "minnano",
           "theporndb": "theporndb",
@@ -623,6 +786,7 @@
         },
         "$": {
           "options": {
+            "avbase": "avbase",
             "javdb": "javdb",
             "minnano": "minnano",
             "theporndb": "theporndb",

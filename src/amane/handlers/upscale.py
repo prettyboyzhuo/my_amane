@@ -1,7 +1,5 @@
-"""UPSCALE 任务 handler - 扫描全部资源, 对低质图就地超分.
-
-定时任务 (RoutineType.UPSCALE) 触发. 去重依赖 Resource.meta 的 'sr' 键 (就地覆盖, URL 不变).
-机会主义: 单个失败不阻断整批; 单次批量上限避免长占 worker.
+"""就地超分低质图. 去重依据 Resource.meta 的 sr 键 (覆盖原文件, URL 不变).
+单个失败不阻断整批.
 """
 
 from pathlib import Path
@@ -21,28 +19,23 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# 仅对图片超分 (视频/未知类型跳过).
 _IMAGE_MIME_PREFIX = "image/"
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def _is_image(mime: str | None, file_path: str) -> bool:
-    """判断资源是否为图片 (按 MIME 或扩展名)."""
     if mime:
         return mime.startswith(_IMAGE_MIME_PREFIX)
     return Path(file_path).suffix.lower() in _IMAGE_EXTS
 
 
 class UpscaleHandler(TaskHandler[UpscalePayload, UpscaleResult]):
-    """处理 UPSCALE 任务 - 后台批量超分低质资源."""
-
     def __init__(self, resource_store: ResourceStore, config: HotSettings):
         super().__init__(payload_t=UpscalePayload, result_t=UpscaleResult)
         self._store = resource_store
         self._config = config
 
     async def _sr_producer(self, src: Path, out: Path) -> bool:
-        """就地超分的 SR 子进程回调 (输入路径, 临时输出路径)."""
         result = await run_SR(src, out, self._config.sr, self._store.data_dir)
         return result.success
 
@@ -58,7 +51,7 @@ class UpscaleHandler(TaskHandler[UpscalePayload, UpscaleResult]):
                 break
             scanned += 1
 
-            # 已超分 (meta 含 sr) 或非图 → 跳过
+            # 已超分或非图则跳过.
             if res.meta and "sr" in res.meta:
                 skipped += 1
                 continue
@@ -69,6 +62,7 @@ class UpscaleHandler(TaskHandler[UpscalePayload, UpscaleResult]):
             full = self._store.full_path(res)
             size = probe_size(full)
             file_bytes = full.stat().st_size if full.exists() else 0
+            # 未达阈值则跳过.
             if not needs_upscale(size, file_bytes, max_dim_threshold=max_dim, max_bytes_threshold=max_bytes):
                 skipped += 1
                 continue

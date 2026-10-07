@@ -1,9 +1,5 @@
 {
   "title": "设置",
-  "sections": {
-    "configuration": "配置",
-    "watchPaths": "监控路径"
-  },
   "tabs": {
     "scraping": "影片刮削",
     "actor_scraping": "演员刮削",
@@ -18,6 +14,19 @@
   },
   "config": {
     "loadError": "加载配置失败"
+  },
+  "client": {
+    "title": "客户端设置",
+    "unavailable": "此页面只在 Android 壳内可用",
+    "bridgeMissing": "壳没有响应页面请求，请重新安装或更新 APP",
+    "server": "当前服务器",
+    "switchServer": "切换服务器",
+    "webView": "系统 WebView",
+    "chromium": "渲染内核",
+    "webViewUnknown": "未知",
+    "chromiumOutdated": "渲染内核 Chromium {{major}} 低于前端需要的 {{min}}。请更新系统 WebView，否则布局与样式会残缺",
+    "updateWebView": "打开 WebView 的商店页",
+    "appVersion": "APP 版本"
   },
   "fields": {
     "scraping": {
@@ -44,8 +53,8 @@
         "description": "从封面自动裁剪生成海报"
       },
       "poster_crop_skip_ratio": {
-        "label": "海报裁剪跳过阈值",
-        "description": "当 poster 候选高度已达封面高度的此比例以上时, 视为候选够用, 不再从封面裁剪"
+        "label": "海报裁剪跳过阈值比例",
+        "description": "已有海报与封面高度之比超过此值则不裁剪"
       },
       "poster_ratio": {
         "label": "海报裁剪比例",
@@ -57,7 +66,7 @@
       },
       "field_priority": {
         "label": "字段优先级",
-        "description": "单独设置特定字段的优先级",
+        "description": "单独设定特定字段的优先级，类型路由中的其他站点仍会请求",
         "options": {
           "title": "标题",
           "actors": "演员",
@@ -78,6 +87,7 @@
         "$": {
           "options": {
             "airav": "airav",
+            "avbase": "avbase",
             "avsox": "avsox",
             "dahlia": "dahlia",
             "dmm": "dmm",
@@ -107,6 +117,90 @@
           "$": {
             "options": {
               "airav": "airav",
+              "avbase": "avbase",
+              "avsox": "avsox",
+              "dahlia": "dahlia",
+              "dmm": "dmm",
+              "faleno": "faleno",
+              "fc2": "fc2",
+              "fc2club": "fc2club",
+              "fc2ppvdb": "fc2ppvdb",
+              "freejavbt": "freejavbt",
+              "getchu": "getchu",
+              "gfriends": "gfriends",
+              "giga": "giga",
+              "iqqtv": "iqqtv",
+              "jav321": "jav321",
+              "javbus": "javbus",
+              "javdb": "javdb",
+              "javlibrary": "javlibrary",
+              "kin8": "kin8",
+              "mgstage": "mgstage",
+              "minnano": "minnano",
+              "official": "official",
+              "prestige": "prestige",
+              "r18dev": "r18dev",
+              "theporndb": "theporndb",
+              "wikipedia": "wikipedia",
+              "xcity": "xcity"
+            }
+          }
+        }
+      },
+      "field_blacklist": {
+        "label": "字段黑名单",
+        "description": "指定字段不采用的站点",
+        "options": {
+          "title": "标题",
+          "actors": "演员",
+          "tags": "标签",
+          "release": "发行日期",
+          "runtime": "时长",
+          "directors": "导演",
+          "series": "系列",
+          "studio": "制作商",
+          "publisher": "发行商",
+          "plot": "简介",
+          "poster_urls": "海报",
+          "thumb_urls": "封面",
+          "trailer_urls": "预告片",
+          "extrafanart": "剧照",
+          "score": "评分"
+        },
+        "$": {
+          "options": {
+            "airav": "airav",
+            "avbase": "avbase",
+            "avsox": "avsox",
+            "dahlia": "dahlia",
+            "dmm": "dmm",
+            "faleno": "faleno",
+            "fc2": "fc2",
+            "fc2club": "fc2club",
+            "fc2ppvdb": "fc2ppvdb",
+            "freejavbt": "freejavbt",
+            "getchu": "getchu",
+            "gfriends": "gfriends",
+            "giga": "giga",
+            "iqqtv": "iqqtv",
+            "jav321": "jav321",
+            "javbus": "javbus",
+            "javdb": "javdb",
+            "javlibrary": "javlibrary",
+            "kin8": "kin8",
+            "mgstage": "mgstage",
+            "minnano": "minnano",
+            "official": "official",
+            "prestige": "prestige",
+            "r18dev": "r18dev",
+            "theporndb": "theporndb",
+            "wikipedia": "wikipedia",
+            "xcity": "xcity"
+          },
+          "$": {
+            "options": {
+              "airav": "airav",
+              "avbase": "avbase",
               "avsox": "avsox",
               "dahlia": "dahlia",
               "dmm": "dmm",
@@ -166,9 +260,10 @@
       },
       "site_config": {
         "label": "站点配置",
-        "description": "各来源站点的独立配置",
+        "description": "按站点单独设置",
         "options": {
           "airav": "airav",
+          "avbase": "avbase",
           "avsox": "avsox",
           "dahlia": "dahlia",
           "dmm": "dmm",
@@ -205,20 +300,34 @@
             "description": "通过配置的代理发送请求"
           },
           "use_browser": {
-            "label": "使用浏览器",
-            "description": "使用无头浏览器抓取 (较慢但可绕过反爬)"
+            "label": "浏览器策略",
+            "options": {
+              "off": "关闭",
+              "auto": "自适应",
+              "always": "始终"
+            }
+          },
+          "browser_backend": {
+            "label": "浏览器后端",
+            "description": "覆盖全局后端; off 表示该来源禁用浏览器",
+            "options": {
+              "off": "关闭",
+              "patchright": "Patchright",
+              "camoufox": "Camoufox",
+              "solver": "Solver 服务"
+            }
           },
           "cookie": {
             "label": "Cookie",
-            "description": "自定义 Cookie 字符串用于身份验证"
+            "description": "用于需要登录的站点等"
           },
           "api_token": {
             "label": "API Token",
-            "description": "API 访问令牌"
+            "description": ""
           },
           "official_routes": {
             "label": "厂商路由",
-            "description": "番号前缀到制作商的映射",
+            "description": "按番号前缀指定片商",
             "$": {
               "options": {
                 "attackers": "Attackers",
@@ -255,13 +364,13 @@
           },
           "rate_limit": {
             "label": "速率限制",
-            "description": "该站点的独立速率限制"
+            "description": "该站点每秒请求上限"
           }
         }
       },
       "content_routes": {
         "label": "类型路由",
-        "description": "指定用于特定类型的来源站及其默认优先级",
+        "description": "按影片类型指定来源站点和默认优先级",
         "options": {
           "censored": "有码",
           "uncensored": "无码",
@@ -274,6 +383,7 @@
         "$": {
           "options": {
             "airav": "airav",
+            "avbase": "avbase",
             "avsox": "avsox",
             "dahlia": "dahlia",
             "dmm": "dmm",
@@ -303,6 +413,7 @@
           "$": {
             "options": {
               "airav": "airav",
+              "avbase": "avbase",
               "avsox": "avsox",
               "dahlia": "dahlia",
               "dmm": "dmm",
@@ -350,17 +461,33 @@
         "label": "最大连接数",
         "description": "连接池最大连接数"
       },
-      "browser_timeout": {
-        "label": "浏览器超时",
-        "description": "无头浏览器页面导航超时 (毫秒)"
+      "browser": {
+        "label": "浏览器渲染",
+        "backend": {
+          "label": "后端",
+          "options": {
+            "off": "关闭",
+            "patchright": "Patchright",
+            "camoufox": "Camoufox",
+            "solver": "Solver 服务"
+          }
+        },
+        "timeout": {
+          "label": "页面请求超时",
+          "description": "浏览器超时(毫秒)"
+        },
+        "solver_url": {
+          "label": "Solver 地址",
+          "description": "FlareSolverr 兼容服务地址, 仅 solver 后端使用"
+        }
       },
       "chunked_threshold": {
         "label": "分块阈值",
-        "description": "启用分块下载的文件大小阈值 (字节)"
+        "description": "超过该大小（字节）时分块下载"
       },
       "chunk_size": {
         "label": "分块大小",
-        "description": "每个下载分块的大小 (字节)"
+        "description": "每个分块的大小（字节）"
       },
       "concurrency": {
         "label": "下载并发数",
@@ -368,11 +495,11 @@
       },
       "rate_limits": {
         "label": "速率限制",
-        "description": "按域名的速率限制覆盖. key 为主机名 (如 javdb.com), 优先级高于站点配置."
+        "description": "按 Host (如 javdb.com) 限制请求速率, 优先级高于站点配置"
       },
       "default_rate_limit": {
         "label": "默认速率限制",
-        "description": "未单独配置的域名使用的默认请求速率 (req/s). 优先级低于按域名与站点配置."
+        "description": "未设置网站默认请求速率"
       }
     },
     "worker": {
@@ -400,13 +527,13 @@
       },
       "media_extensions": {
         "label": "媒体扩展名",
-        "description": "监控和扫描的媒体文件扩展名白名单"
+        "description": "监控和扫描的媒体文件扩展名列表, 逗号分隔"
       }
     },
     "sr": {
       "enabled": {
         "label": "刮削时超分",
-        "description": "若关闭可以通过设置定时任务在后台进行"
+        "description": "若关闭可用定时任务在空闲时超分"
       },
       "max_dim_threshold": {
         "label": "超分尺寸阈值",
@@ -451,30 +578,35 @@
       },
       "debug_capture": {
         "label": "调试捕获",
-        "description": "为所有任务捕获原始响应; 关闭时仅失败任务捕获"
+        "description": "打开则为所有任务记录原始响应, 否则只记录失败任务"
       }
     },
     "llm": {
       "enabled": {
         "label": "启用 LLM 翻译",
-        "description": "刮削时用 LLM 翻译元数据文本字段. 关闭时跳过翻译步骤"
+        "description": "刮削时翻译文本字段"
       },
       "api_key": {
         "label": "API 密钥",
-        "description": "OpenAI 兼容 API 密钥. 为空时即使启用也不翻译"
+        "description": ""
+      },
+      "api_type": {
+        "label": "API 类型",
+        "options": {
+          "chat": "Chat",
+          "response": "Responses",
+          "anthropic": "Anthropic"
+        }
       },
       "base_url": {
         "label": "API 端点",
-        "description": "OpenAI 兼容端点 URL. 可指向自建或第三方代理"
+        "description": "OpenAI 兼容 API BASE URL"
       },
       "model": {
         "label": "模型"
       },
-      "max_retries": {
-        "label": "最大重试次数"
-      },
       "rate_limit": {
-        "label": "请求速率限制 (req/s)"
+        "label": "每秒请求上限"
       },
       "translate_fields": {
         "label": "翻译字段",
@@ -497,6 +629,32 @@
             "extrafanart": "剧照",
             "score": "评分"
           }
+        }
+      },
+      "system_prompt": {
+        "label": "系统提示词"
+      },
+      "field_prompts": {
+        "label": "字段提示词",
+        "$": {
+          "label": "提示词"
+        },
+        "options": {
+          "title": "标题",
+          "actors": "演员",
+          "tags": "标签",
+          "release": "发行日期",
+          "runtime": "时长",
+          "directors": "导演",
+          "series": "系列",
+          "studio": "制作商",
+          "publisher": "发行商",
+          "plot": "简介",
+          "poster_urls": "海报",
+          "thumb_urls": "封面",
+          "trailer_urls": "预告片",
+          "extrafanart": "剧照",
+          "score": "评分"
         }
       }
     },
@@ -531,8 +689,12 @@
           "xhigh": "最高"
         }
       },
+      "max_tokens": {
+        "label": "最大输出 token",
+        "description": "单次回复的输出上限. 超过模型上限时上游拒绝请求"
+      },
       "rate_limit": {
-        "label": "请求速率限制 (req/s)",
+        "label": "每秒请求上限",
         "description": "参考供应商说明, 过高可能触发限流"
       },
       "sql_timeout_ms": {
@@ -563,22 +725,22 @@
       },
       "db_name": {
         "label": "数据库名",
-        "description": "导入目标数据库名. 由导入器自动创建"
+        "description": "导入时使用的库名, 由导入器自动创建"
       },
       "read_user": {
         "label": "只读角色",
-        "description": "运行时查询使用的只读角色. 由导入器自动创建并授权"
+        "description": "用于查询的只读账号, 由导入器自动创建并授权"
       },
       "read_password": {
         "label": "只读角色密码"
       },
       "read_timeout": {
         "label": "查询超时 (秒)",
-        "description": "只读角色的查询限制, 防止异常查询长占连接"
+        "description": ""
       },
       "download_url": {
-        "label": "dump 下载地址",
-        "description": "r18.dev dump 下载地址, 通常是重定向到 S3 的稳定入口"
+        "label": "数据包地址",
+        "description": "r18.dev 数据包下载地址"
       },
       "psql_path": {
         "label": "psql 路径"
@@ -616,6 +778,7 @@
       "profile_sites": {
         "label": "演员资料优先级",
         "options": {
+          "avbase": "avbase",
           "javdb": "javdb",
           "minnano": "minnano",
           "theporndb": "theporndb",
@@ -623,6 +786,7 @@
         },
         "$": {
           "options": {
+            "avbase": "avbase",
             "javdb": "javdb",
             "minnano": "minnano",
             "theporndb": "theporndb",

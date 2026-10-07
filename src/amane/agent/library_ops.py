@@ -1,5 +1,3 @@
-"""library-ops Capability - 媒体库 CRUD 与扫描入队."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,17 +7,19 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Capability
 
 from ..api.support.path_validation import check_directory_path
-from ..db.models import TaskType
+from ..db.models import Library, TaskType
 from ..db.repo_types import LibraryUpdates
-from ..enums import LibraryAutomation
+from ..enums import LibraryAutomation, LibraryIngest
 from ..handlers.models import RefreshPayload, ScanMode
-from .tools import AgentDeps, require_approval, trace_tool
+from .tools import TOOL_OK, AgentDeps, require_approval, unknown_field_error
 
 _LIBRARY_UPDATE_KEYS = frozenset(
     {
         "name",
         "path",
         "automation",
+        "ingest",
+        "cloud_path",
         "recursive",
         "patterns",
         "move_mode",
@@ -44,48 +44,20 @@ _LIBRARY_UPDATE_KEYS = frozenset(
 )
 
 
-def _sync_watcher_add(
-    deps: AgentDeps,
-    *,
-    path: str,
-    library_id: int,
-    recursive: bool,
-    patterns: list[str],
-    skip_patterns: list[str],
-    min_file_size: int = 0,
-) -> None:
+def _sync_library(deps: AgentDeps, lib: Library) -> None:
     watcher = deps.bridge.watcher
     if watcher is not None:
-        watcher.add_library(
-            path,
-            library_id,
-            recursive=recursive,
-            patterns=patterns,
-            skip_patterns=skip_patterns,
-            min_file_size=min_file_size,
-        )
-
-
-def _sync_watcher_remove(deps: AgentDeps, library_id: int) -> None:
-    watcher = deps.bridge.watcher
-    if watcher is not None:
-        watcher.remove_library(library_id)
+        watcher.sync_library(lib)
 
 
 def build_library_ops_capability() -> Capability[AgentDeps]:
-    """按需加载的媒体库管理; 删除须批准."""
+    """删除须批准."""
     cap: Capability[AgentDeps] = Capability(
         id="library-ops",
-        description=(
-            "Use for creating/updating/deleting media libraries and enqueueing refresh/scan tasks. "
-            "Paths must stay inside configured safe directories."
-        ),
         instructions=(
-            "Library paths must exist and lie under safe_dirs. "
-            "delete_library requires user approval (removes MediaFile index rows, not disk files). "
-            "Prefer enqueue_library_refresh after create when the user wants an initial scan."
+            "A library path must exist and lie under safe_dirs; create_library rejects anything else. "
+            "After create, prefer enqueue_library_refresh when the user wants an initial scan."
         ),
-        defer_loading=True,
     )
 
     @cap.tool
@@ -100,43 +72,24 @@ def build_library_ops_capability() -> Capability[AgentDeps]:
     ) -> dict[str, Any]:
         """Create a media library; optional initial REFRESH(scan=add)."""
         patterns = list(patterns or [])
-        trace_tool(
-            ctx,
-            "tool_call",
-            {
-                "tool": "create_library",
-                "path": path,
-                "name": name,
-                "automation": automation,
-                "recursive": recursive,
-                "patterns": patterns,
-                "scan": scan,
-            },
-        )
         try:
             await check_directory_path(path, ctx.deps.bridge.safe_dirs)
         except ValueError as exc:
             return {"error": str(exc)}
         display = name or Path(path).name
-        lib = await ctx.deps.repo.create_library(
-            name=display,
-            path=path,
-            automation=automation,
-            recursive=recursive,
-            patterns=patterns,
-        )
-        assert lib.id is not None
-        if automation != LibraryAutomation.NONE:
-            _sync_watcher_add(
-                ctx.deps,
-                path=lib.path,
-                library_id=lib.id,
-                recursive=lib.recursive,
-                patterns=list(lib.patterns or []),
-                skip_patterns=[lib.trailer_pattern, *(lib.blacklist_patterns or [])],
-                min_file_size=lib.min_file_size,
+        try:
+            lib = await ctx.deps.repo.create_library(
+                name=display,
+                path=path,
+                automation=automation,
+                recursive=recursive,
+                patterns=patterns,
             )
-        task_id: int | None = None
+        except ValueError as exc:
+            return {"error": str(exc)}
+        assert lib.id is not None
+        _sync_library(ctx.deps, lib)
+        out: dict[str, Any] = {"library_id": lib.id}
         if scan:
             task = await ctx.deps.repo.create_task(
                 TaskType.REFRESH,
@@ -150,35 +103,44 @@ def build_library_ops_capability() -> Capability[AgentDeps]:
                 ),
             )
             assert task.id is not None
-            task_id = task.id
-        out = {"id": lib.id, "name": lib.name, "path": lib.path, "refresh_task_id": task_id}
-        trace_tool(ctx, "tool_result", {"tool": "create_library", "result": out})
+            out["refresh_task_id"] = task.id
         return out
 
     @cap.tool
-    async def update_library(ctx: RunContext[AgentDeps], library_id: int, patch: dict[str, Any]) -> dict[str, Any]:
+    async def update_library(
+        ctx: RunContext[AgentDeps], library_id: int, patch: dict[str, Any]
+    ) -> str | dict[str, Any]:
         """Patch library config fields."""
-        trace_tool(ctx, "tool_call", {"tool": "update_library", "library_id": library_id, "patch": patch})
         if not patch:
             return {"error": "patch 为空"}
         unknown = sorted(set(patch) - _LIBRARY_UPDATE_KEYS)
         if unknown:
-            return {"error": f"不允许的字段: {', '.join(unknown)}"}
+            return unknown_field_error(unknown, _LIBRARY_UPDATE_KEYS)
         if "automation" in patch:
             try:
                 patch["automation"] = LibraryAutomation(patch["automation"])
             except ValueError:
                 return {"error": f"无效的 automation: {patch['automation']}"}
+        if "ingest" in patch:
+            try:
+                patch["ingest"] = LibraryIngest(patch["ingest"])
+            except ValueError:
+                return {"error": f"无效的 ingest: {patch['ingest']}"}
         if "path" in patch and patch["path"] is not None:
             try:
                 await check_directory_path(str(patch["path"]), ctx.deps.bridge.safe_dirs)
             except ValueError as exc:
                 return {"error": str(exc)}
-        lib = await ctx.deps.repo.update_library(library_id, **cast(LibraryUpdates, patch))
+        try:
+            lib = await ctx.deps.repo.update_library(library_id, **cast(LibraryUpdates, patch))
+        except ValueError as exc:
+            return {"error": str(exc)}
         if lib is None:
             return {"error": f"library {library_id} 不存在"}
         watch_fields = {
             "automation",
+            "ingest",
+            "cloud_path",
             "path",
             "recursive",
             "patterns",
@@ -187,27 +149,13 @@ def build_library_ops_capability() -> Capability[AgentDeps]:
             "min_file_size",
         }
         if watch_fields & set(patch):
-            _sync_watcher_remove(ctx.deps, library_id)
-            if lib.automation != LibraryAutomation.NONE:
-                assert lib.id is not None
-                _sync_watcher_add(
-                    ctx.deps,
-                    path=lib.path,
-                    library_id=lib.id,
-                    recursive=lib.recursive,
-                    patterns=list(lib.patterns or []),
-                    skip_patterns=[lib.trailer_pattern, *(lib.blacklist_patterns or [])],
-                    min_file_size=lib.min_file_size,
-                )
-        out = {"id": lib.id, "name": lib.name, "path": lib.path, "updated": True}
-        trace_tool(ctx, "tool_result", {"tool": "update_library", "result": out})
-        return out
+            _sync_library(ctx.deps, lib)
+        return TOOL_OK
 
     @cap.tool
-    async def delete_library(ctx: RunContext[AgentDeps], library_id: int) -> dict[str, Any]:
-        """Delete a library and its MediaFile index rows. Requires approval."""
+    async def delete_library(ctx: RunContext[AgentDeps], library_id: int) -> str | dict[str, Any]:
+        """Delete a library and its MediaFile index rows."""
         detail = f"删除媒体库 id={library_id} (仅索引, 不动磁盘文件)"
-        trace_tool(ctx, "tool_call", {"tool": "delete_library", "library_id": library_id})
         require_approval(
             ctx,
             sql=detail,
@@ -216,20 +164,11 @@ def build_library_ops_capability() -> Capability[AgentDeps]:
         )
         existing = await ctx.deps.repo.list_libraries()
         if not any(lib.id == library_id for lib in existing):
-            out = {"tool": "delete_library", "library_id": library_id, "deleted": False, "error": "不存在"}
-            trace_tool(ctx, "tool_result", {"tool": "delete_library", "result": out})
-            return out
+            return {"error": f"library {library_id} 不存在"}
         if ctx.deps.bridge.watcher is not None:
             ctx.deps.bridge.watcher.remove_library(library_id)
-        deleted_media = await ctx.deps.repo.delete_library(library_id)
-        out = {
-            "tool": "delete_library",
-            "library_id": library_id,
-            "deleted": True,
-            "deleted_media": deleted_media,
-        }
-        trace_tool(ctx, "tool_result", {"tool": "delete_library", "result": out})
-        return out
+        await ctx.deps.repo.delete_library(library_id)
+        return TOOL_OK
 
     @cap.tool
     async def enqueue_library_refresh(
@@ -239,16 +178,6 @@ def build_library_ops_capability() -> Capability[AgentDeps]:
         scan_remove: bool = False,
     ) -> dict[str, Any]:
         """Enqueue a REFRESH task for a library (scan add/remove modes)."""
-        trace_tool(
-            ctx,
-            "tool_call",
-            {
-                "tool": "enqueue_library_refresh",
-                "library_id": library_id,
-                "scan_add": scan_add,
-                "scan_remove": scan_remove,
-            },
-        )
         lib = await ctx.deps.repo.get_library(library_id)
         if lib is None:
             return {"error": f"library {library_id} 不存在"}
@@ -271,8 +200,6 @@ def build_library_ops_capability() -> Capability[AgentDeps]:
             ),
         )
         assert task.id is not None
-        out = {"task_id": task.id, "library_id": library_id, "scan": sorted(scan)}
-        trace_tool(ctx, "tool_result", {"tool": "enqueue_library_refresh", "result": out})
-        return out
+        return {"task_id": task.id}
 
     return cap

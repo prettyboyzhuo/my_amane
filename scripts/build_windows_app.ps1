@@ -44,6 +44,12 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 Remove-Item -Recurse -Force $Work, $Out -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Work, $Out | Out-Null
 
+$StdlibArgs = @()
+& (Join-Path $Root ".venv\Scripts\python.exe") (Join-Path $Root "scripts\stdlib_modules.py") | ForEach-Object {
+    if ($_ -ne "") { $StdlibArgs += @("--collect-submodules", $_) }
+}
+
+# 插件在运行时才被加载, 打包器看不见它们引用的标准库模块; 这里整包收进来 (实测 +1 MiB).
 & $PyInstaller `
     --noconfirm --clean --onedir --console `
     --name "Amane.Server" `
@@ -54,17 +60,22 @@ New-Item -ItemType Directory -Force -Path $Work, $Out | Out-Null
     --add-data "$(Join-Path $Root 'alembic.ini');." `
     --collect-submodules amane `
     --exclude-module patchright `
+    --exclude-module camoufox `
+    --exclude-module playwright `
     --exclude-module IPython `
     --collect-all pydantic_ai `
     --collect-all pydantic_graph `
     --collect-all genai_prices `
+    --collect-data zhconv `
+    --hidden-import socksio `
+    @StdlibArgs `
     --copy-metadata genai_prices `
     --copy-metadata pydantic_ai_slim `
     --copy-metadata amane `
     --distpath (Join-Path $Work "dist") `
     --workpath (Join-Path $Work "build") `
     --specpath $Work `
-    (Join-Path $Root "src\amane\server.py")
+    (Join-Path $Root "scripts\pyinstaller_entry.py")
 if ($LASTEXITCODE -ne 0) {
     Write-Error "pyinstaller failed ($LASTEXITCODE)"
     exit $LASTEXITCODE

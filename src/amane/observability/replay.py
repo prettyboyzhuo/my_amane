@@ -1,4 +1,4 @@
-"""离线 HTTP 回放客户端 - duck-type 兼容 WebClient 的 text/json 接口."""
+"""离线 HTTP 回放; duck-type 兼容 WebClient 的 text/json 接口."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .recorder import load_http_index
 
 @dataclass
 class _ReplayResponse:
-    """最小 Response duck - 仅供内部 get_* 使用, 不暴露给爬虫."""
+    """仅供内部 get_* 使用, 不暴露给爬虫."""
 
     status_code: int
     content: bytes
@@ -61,6 +61,7 @@ class ReplayWebClient:
         timeout: float | None = None,
         allow_redirects: bool = True,
         ok_statuses: frozenset[int] | None = None,
+        max_attempts: int | None = None,
     ) -> _ReplayResponse:
         entry = self._match(method, url)
         if entry is None:
@@ -164,6 +165,10 @@ class ReplayWebClient:
             return None
         return len(resp.content)
 
+    async def resolve_final_url(self, url: str, *, use_proxy: bool = True) -> str:
+        # 录制只存请求 URL, 不含重定向终址; 回放按原 URL 处理.
+        return url
+
     async def download(self, url: str, dest: Path, **kwargs: Any) -> bool:
         try:
             data = await self.get_bytes(url)
@@ -175,11 +180,11 @@ class ReplayWebClient:
 
     def _match(self, method: str, url: str) -> _Entry | None:
         method_u = method.upper()
-        # 1) 精确 method+url 未消费
+        # 精确 method+url 且未消费
         for e in self._entries:
             if not e.consumed and e.meta.method == method_u and e.meta.url == url:
                 return e
-        # 2) 忽略 query 顺序差异: 同 path+method
+        # 忽略 query 顺序差异: 同 path+method
         target = urlparse(url)
         for e in self._entries:
             if e.consumed or e.meta.method != method_u:

@@ -27,26 +27,23 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 @router.get("")
 async def list_schedules(repo: RepoDep) -> ScheduleListResponse:
-    """列出所有定时任务"""
     items = await repo.list_schedules()
     return ScheduleListResponse(items=[to_resp(ScheduleResponse, s) for s in items], total=len(items))
 
 
 @router.get("/schema")
 async def get_schedule_schema() -> dict:
-    """返回定时任务 payload 的 JSON Schema."""
     return TypeAdapter(RoutineSubmission).json_schema()
 
 
 @router.post("", status_code=201)
 async def create_schedule(req: ScheduleCreateRequest, repo: RepoDep) -> ScheduleResponse:
-    """创建定时任务"""
     if not croniter.is_valid(req.cron):
         raise HTTPException(status_code=422, detail="Invalid cron expression")
 
     next_run = croniter(req.cron, datetime.now(UTC)).get_next(datetime)
     task_type = RoutineType(req.submission.type)
-    payload = req.submission.model_dump()
+    payload = req.submission.model_dump(mode="json")
 
     schedule = await repo.create_schedule(
         name=req.name,
@@ -70,7 +67,7 @@ async def get_schedule(schedule_id: int, repo: RepoDep) -> ScheduleResponse:
 
 @router.patch("/{schedule_id}")
 async def update_schedule(schedule_id: int, req: ScheduleUpdateRequest, repo: RepoDep) -> ScheduleResponse:
-    """更新定时任务的 name/cron/enabled. 改任务内容请删除后重建."""
+    """仅 name/cron/enabled. 修改任务内容须删除后重建."""
     updates = cast("ScheduleUpdates", req.model_dump(exclude_unset=True))
 
     if "cron" in updates:
@@ -87,7 +84,6 @@ async def update_schedule(schedule_id: int, req: ScheduleUpdateRequest, repo: Re
 
 @router.delete("/{schedule_id}", status_code=204)
 async def delete_schedule(schedule_id: int, repo: RepoDep):
-    """删除定时任务"""
     deleted = await repo.delete_schedule(schedule_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -97,7 +93,7 @@ async def delete_schedule(schedule_id: int, repo: RepoDep):
 
 @router.post("/{schedule_id}/trigger")
 async def trigger_schedule(schedule_id: int, repo: RepoDep) -> ScheduleResponse:
-    """手动触发定时任务: 将 next_run 设为当前时间, 由 cron 在下一个 tick 执行."""
+    """将 next_run 设置为当前时间, 由 cron 在下一个 tick 执行."""
     schedule = await repo.get_schedule(schedule_id)
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")

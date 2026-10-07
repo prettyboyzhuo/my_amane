@@ -1,19 +1,23 @@
 import type { AnyFieldApi } from "@tanstack/react-form";
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useId, type ReactNode } from "react";
 import { isRecord } from "@/lib/utils";
 import type { SchemaFormInstance } from "../schema";
 
 /**
- * Dict 条目的表单绑定: 用户 key 是对象上的字面量, 不拼进 TanStack 点路径.
- * 叶子控件仍走 `form.Field`; 本 scope 把读写转到父级 dict 的 `[entryKey]`.
+ * Dict 条目绑定: 用户 key 是对象上的字面量, 不拼进 TanStack 点路径.
+ * 叶子控件仍使用 `form.Field`; 本 scope 把读写转到父级 dict 的 `[entryKey]`.
  *
  * `bindEntry`: 值本身是 scalar / array, Field `name` 只作 DOM id.
  * 否则 `name` 是条目内部的 schema 相对路径 (属性名, 可再嵌套).
+ *
+ * Tabs 同时挂载全部条目, 叶子 `id`/`htmlFor` 必须经 `useFieldDomId` 加上条目前缀,
+ * 不能只用 schema 相对名, 否则同名 Switch 的 label 会命中第一份控件.
  */
 const DictEntryContext = createContext<{
   parentField: AnyFieldApi;
   entryKey: string;
   bindEntry: boolean;
+  scopeId: string;
 } | null>(null);
 
 export function DictEntryScope({
@@ -27,14 +31,23 @@ export function DictEntryScope({
   bindEntry: boolean;
   children: ReactNode;
 }) {
+  const scopeId = useId();
   return (
-    <DictEntryContext.Provider value={{ parentField, entryKey, bindEntry }}>
+    <DictEntryContext.Provider value={{ parentField, entryKey, bindEntry, scopeId }}>
       {children}
     </DictEntryContext.Provider>
   );
 }
 
-function asDict(value: unknown): Record<string, unknown> {
+/** 叶子控件 DOM id. 处于 DictEntryScope 时附加本条目前缀, 避免多条目同名碰撞. */
+export function useFieldDomId(name: string): string {
+  const ctx = useContext(DictEntryContext);
+  if (ctx == null) return name;
+  return `${ctx.scopeId}${name}`;
+}
+
+/** dict 字段值的对象视图; 非对象一律按空 dict 处理, 与 `DictField` 的条目列表同源. */
+export function asDict(value: unknown): Record<string, unknown> {
   return isRecord(value) && !Array.isArray(value) ? value : {};
 }
 
@@ -79,6 +92,8 @@ function DictEntryField({
   const value = getAt(dict[entryKey], parts);
 
   // 只实现叶子控件用到的 value / handleChange / meta.errors; 完整 AnyFieldApi 过宽.
+  // 空值条目的删除由 `DictField` 在条目失焦时执行 — 输入过程中的空值只是中间态,
+  // 在这里删除会连同控件卸载, 用户无法就地重新输入.
   const field = {
     state: { value, meta: { errors: [] } },
     handleChange: (next: unknown) => {

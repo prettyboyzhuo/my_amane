@@ -6,7 +6,7 @@ export type ColumnWidths<K extends string> = Partial<Record<K, number>>;
 
 interface UseResizableColumnsOptions<K extends string> {
   defaults: Record<K, number>;
-  /** 持久化的用户列宽; 缺省列走 defaults (或调用方对 flex 列特殊处理). */
+  /** 持久化的用户列宽; 缺省列采用 defaults (或调用方对 flex 列特殊处理). */
   stored?: ColumnWidths<K>;
   onChange?: (widths: ColumnWidths<K>) => void;
   minWidth?: number;
@@ -36,7 +36,7 @@ export function useResizableColumns<K extends string>({
     startWidth: number;
   } | null>(null);
 
-  /** 用户覆盖优先, 否则默认 px. 调用方对 flex 列可忽略默认, 不设 w. */
+  /** 用户覆盖优先, 否则默认 px. 调用方对 flex 列可忽略默认, 不设置 w. */
   const effectiveWidth = useCallback(
     (key: K): number => widths[key] ?? defaults[key],
     [widths, defaults],

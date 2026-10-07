@@ -23,7 +23,7 @@ _ANNOTATED_VALIDATORS = (AfterValidator, BeforeValidator, PlainValidator, WrapVa
 def _none_skipping(
     validators: tuple[AfterValidator | BeforeValidator | PlainValidator | WrapValidator, ...],
 ) -> tuple[AfterValidator | BeforeValidator | PlainValidator | WrapValidator, ...]:
-    """Partial 字段默认 None; 把 Annotated 校验器包一层, 空值不跑源校验."""
+    """空值不执行源校验."""
     wrapped: list[AfterValidator | BeforeValidator | PlainValidator | WrapValidator] = []
     for meta in validators:
         if isinstance(meta, AfterValidator):
@@ -56,7 +56,6 @@ _MISSING = object()
 
 
 def _allows_none(annotation: Any) -> bool:
-    """类型是否包含 None (Optional / T | None / Annotated 包装)."""
     origin = get_origin(annotation)
     if origin is Annotated:
         args = get_args(annotation)
@@ -270,7 +269,7 @@ def create_partial_model[T: BaseModel](
             if field_annotation_origin in (Union, UnionType, tuple, list, set, dict):
                 if field_annotation_origin is UnionType:
                     field_annotation_origin = Union
-                field_annotation = field_annotation_origin[  # pyright: ignore[reportInvalidTypeArguments]
+                field_annotation = field_annotation_origin[  # pyright: ignore[reportInvalidTypeArguments]  # ty:ignore[not-subscriptable]
                     tuple(
                         _partial_annotation_arg(field_name, field_annotation_arg)
                         for field_annotation_arg in get_args(field_annotation)
@@ -288,7 +287,7 @@ def create_partial_model[T: BaseModel](
                 non_nullable_source.add(field_name)
             annotation: Any = Optional[field_annotation]  # noqa: UP045  # ty:ignore[invalid-type-form]
             if validators:
-                # PATCH 缺省为 None, 校验器只跑显式提供的值.
+                # PATCH 缺省为 None, 校验器只执行显式提供的值.
                 annotation = Annotated[annotation, *_none_skipping(validators)]
             optional_fields[field_name] = (
                 annotation,

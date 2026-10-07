@@ -1,17 +1,9 @@
-"""
-海报生成与图像判定.
-
-- `crop_poster`: 从缩略图右侧裁剪生成海报.
-- `crop_box`: 按像素框裁剪任意矩形区域.
-- 判定纯函数 (`probe_size` / `should_crop_poster` / `needs_upscale` /
-  `validate_crop_box`): 仅依赖图像尺寸与基本类型参数, 无 I/O 副作用之外的依赖, 便于表测试.
-  阈值由调用方从 config 取出后传入.
-- 封面角标: 包内 PNG 叠到库路径副本; 高度/四角由调用方从 Hot `watermark` 传入.
-(图片下载已统一由 ResourceStore 承担, 见 media/resource_store.py.)
-"""
+"""海报裁剪与封面角标. 判定函数只依赖尺寸与阈值, 无 I/O."""
 
 from collections.abc import Mapping
+from io import BytesIO
 from pathlib import Path
+from typing import IO
 
 import structlog
 from PIL import Image
@@ -22,22 +14,19 @@ from .watermarks import load_stamp
 
 logger = structlog.get_logger()
 
-# 海报裁剪: 缩略图的右侧部分
-# 标准 DVD 封面约 800x538, 海报为右侧约 379x538 (≈0.704); 默认取 0.7
-_DEFAULT_POSTER_RATIO = 0.7  # 目标宽高比 (w/h)
+# 标准 DVD 封面约 800x538, 海报为右侧约 379x538 (≈0.704); 默认取 0.7.
+_DEFAULT_POSTER_RATIO = 0.7
 _DEFAULT_JPEG_QUALITY = 95
 
-# 手动像素框裁切的派生 args 前缀: `box:L,T,R,B` (与自动右侧比 `0.7000` 共存于 op=crop)
+# 与自动右侧比 `0.7000` 共存于 op=crop.
 CROP_BOX_ARGS_PREFIX = "box:"
 
 
 def format_crop_box_args(left: int, top: int, right: int, bottom: int) -> str:
-    """手动裁切 → acquire_derived 的 args 串 (`box:L,T,R,B`)."""
     return f"{CROP_BOX_ARGS_PREFIX}{left},{top},{right},{bottom}"
 
 
 def validate_crop_box(box: tuple[int, int, int, int], image_size: tuple[int, int]) -> bool:
-    """校验像素框是否落在图像内且面积为正."""
     left, top, right, bottom = box
     w, h = image_size
     if w <= 0 or h <= 0:
@@ -45,26 +34,30 @@ def validate_crop_box(box: tuple[int, int, int, int], image_size: tuple[int, int
     return left >= 0 and top >= 0 and right <= w and bottom <= h and left < right and top < bottom
 
 
-def probe_size(path: Path) -> tuple[int, int] | None:
-    """读取图像像素尺寸 (w, h). 损坏/非图像返回 None (不抛异常)."""
+def _read_size(source: Path | IO[bytes], *, label: str) -> tuple[int, int] | None:
+    # 损坏 / 非图像返回 None, 不抛异常.
     try:
-        with Image.open(path) as img:
+        with Image.open(source) as img:
             return img.size
     except Exception as e:
-        logger.debug("probe_size failed", path=str(path), error=str(e))
+        logger.debug("probe_size failed", source=label, error=str(e))
         return None
+
+
+def probe_size(path: Path) -> tuple[int, int] | None:
+    return _read_size(path, label=str(path))
+
+
+def probe_size_from_bytes(data: bytes) -> tuple[int, int] | None:
+    return _read_size(BytesIO(data), label=f"<{len(data)} bytes>")
 
 
 def should_crop_poster(
     thumb_size: tuple[int, int] | None, candidate_size: tuple[int, int] | None, *, skip_ratio: float = 0.9
 ) -> bool:
-    """判定是否需要从 thumb 裁剪海报.
+    """无 thumb 尺寸则 False. 无 poster 候选则 True.
 
-     规则:
-    - 无 thumb 尺寸 → 无法裁剪, False.
-    - 无 poster 候选 → 需要裁剪 (从 thumb 生成), True.
-    - 有候选: 若候选已足够高 (b/h ≥ skip_ratio) → 候选本身够用, 不裁剪 (裁剪有错位风险).
-       否则候选偏小 → 裁剪 thumb 得到更大海报.
+    候选已足够高 (b/h ≥ skip_ratio) 则不裁剪: 裁剪有错位风险.
     """
     if thumb_size is None:
         return False
@@ -84,11 +77,7 @@ def needs_upscale(
     max_dim_threshold: int,
     max_bytes_threshold: int,
 ) -> bool:
-    """判定图像是否需要超分.
-
-    需超分 ⟺ 最长边 max(w,h) < max_dim_threshold 且 文件大小 ≤ max_bytes_threshold.
-    (大文件视为已够清晰; 无法读取尺寸时不超分.)
-    """
+    """最长边 < max_dim_threshold 且 文件大小 ≤ max_bytes_threshold. 无法读取尺寸时不超分."""
     if size is None:
         return False
     if file_bytes > max_bytes_threshold:
@@ -103,26 +92,18 @@ def crop_poster(
     poster_ratio: float = _DEFAULT_POSTER_RATIO,
     jpeg_quality: int = _DEFAULT_JPEG_QUALITY,
 ) -> bool:
-    """
-    裁剪缩略图右侧部分以生成海报.
-
-    标准 JAV 缩略图为横向 (~800x538). 海报取图片右侧, 宽度 = height × poster_ratio
-    (封面艺术所在位置).
-
-    成功返回 True, 失败返回 False.
-    """
+    """海报取缩略图右侧, 宽度 = height × poster_ratio."""
     try:
         img = Image.open(thumb_path)
         w, h = img.size
 
-        # 目标海报宽高比
         target_w = int(h * poster_ratio)
         if target_w >= w:
-            # 图片已经足够窄 - 直接使用
+            # 已足够窄, 整图作为海报.
             img.save(poster_path, quality=jpeg_quality)
             return True
 
-        # 从右侧裁剪
+        # 从右侧裁剪.
         left = w - target_w
         cropped = img.crop((left, 0, w, h))
         poster_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,10 +121,7 @@ def crop_box(
     *,
     jpeg_quality: int = _DEFAULT_JPEG_QUALITY,
 ) -> bool:
-    """按像素框 (left, top, right, bottom) 裁剪图像并保存为 JPEG.
-
-    框须落在图像范围内且面积为正 (见 ``validate_crop_box``). 成功 True, 失败 False.
-    """
+    """框须落在图像范围内且面积为正 (见 ``validate_crop_box``)."""
     try:
         img = Image.open(src_path)
         if not validate_crop_box(box, img.size):
@@ -268,7 +246,7 @@ def apply_cover_watermarks(
     scale: float = _DEFAULT_SCALE,
     corners: Mapping[WatermarkKind, WatermarkCorner] | None = None,
 ) -> bool:
-    """在库路径封面/海报叠 PNG 角标. 无标记或无图则不动. 不改 Resource 原图."""
+    """叠到库路径封面/海报. 无标记或无图则不动. 不修改 Resource 原图."""
     stems = _stamp_stems(has_subtitle=has_subtitle, uncensored=uncensored, mosaic=mosaic, definition=definition)
     if not stems:
         return False
@@ -311,7 +289,6 @@ def apply_cover_watermarks_from_info(
     scale: float = _DEFAULT_SCALE,
     corners: Mapping[WatermarkKind, WatermarkCorner] | None = None,
 ) -> bool:
-    """按 FileInfo 给库路径封面加水印."""
     return apply_cover_watermarks(
         path,
         has_subtitle=info.has_subtitle,

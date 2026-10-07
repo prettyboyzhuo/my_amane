@@ -12,30 +12,22 @@ import zhCN from "../locales/zh-CN/tasks.json";
 import type { CollectEnumEntries, CollectFieldPaths } from "./utils";
 import { assertEnums, assertFields } from "./utils";
 
-// ==================== Submission Schema 识别 ====================
-
-/** 所有 SubmissionSchema 名称联合 */
 type SubmissionSchemaName = {
   [K in keyof typeof schemas]: K extends `${string}SubmissionSchema` ? K : never;
 }[keyof typeof schemas];
 
-/** 从 discriminator const 提取 i18n 根路径 (如 "cleanup") */
 type SubmissionRoot<S extends SubmissionSchemaName> = (typeof schemas)[S] extends {
   properties: { type: { const: infer V extends string } };
 }
   ? V
   : never;
 
-/** 提取字段映射, 排除 discriminator `type` */
 type SubmissionFieldProps<S extends SubmissionSchemaName> = (typeof schemas)[S] extends {
   properties: infer Props extends Record<string, unknown>;
 }
   ? { [K in keyof Props & string as K extends "type" ? never : K]: Props[K] }
   : never;
 
-// ==================== 字段路径 & 枚举条目 ====================
-
-/** 单个 Submission 的字段路径 */
 type FieldPathsForSchema<S extends SubmissionSchemaName> =
   SubmissionFieldProps<S> extends infer Props extends Record<string, unknown>
     ? {
@@ -56,7 +48,6 @@ type FieldPaths = {
   [S in SubmissionSchemaName]: FieldPathsForSchema<S>;
 }[SubmissionSchemaName];
 
-/** 单个 Submission 的枚举条目 */
 type EnumEntriesForSchema<S extends SubmissionSchemaName> =
   SubmissionFieldProps<S> extends infer Props extends Record<string, unknown>
     ? {
@@ -68,7 +59,6 @@ type EnumEntriesForSchema<S extends SubmissionSchemaName> =
       }[keyof Props & string]
     : never;
 
-/** 所有 Submission 的枚举条目联合 */
 type EnumEntries = {
   [S in SubmissionSchemaName]: EnumEntriesForSchema<S>;
 }[SubmissionSchemaName];

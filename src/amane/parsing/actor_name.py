@@ -1,12 +1,7 @@
-"""演员名清洗: 拆分 ``name(alias1, alias2)`` 形式的演员名.
-
-某些来源 (如 DMM 月度页) 的演员名带前艺名/别名, 如 ``河北彩花（河北彩伽）``.
-拆分器只做纯文本处理, 落库语义见 ``db/repos/facet_helpers.py::clean_actor_names``.
-"""
+"""只做纯文本拆分, 落库语义见 ``db/repos/facet_helpers.py::clean_actor_names``."""
 
 import re
 
-# 尾部别名组: 名称后跟全角/半角括号, 括号内为别名列表.
 _TRAILING_ALIAS_GROUP = re.compile(r"^(?P<name>.+?)\s*[（(]\s*(?P<aliases>[^（）()]*?)\s*[）)]$")
 _ALIAS_SEPARATOR = re.compile(r"[,，、・]")
 

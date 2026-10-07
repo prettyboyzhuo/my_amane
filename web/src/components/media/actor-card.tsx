@@ -27,7 +27,6 @@ const GENDER_CHIP = {
   },
 } as const;
 
-/** 演员头像卡 - 对齐片库海报的角标 + 文本区信息密度. */
 export const ActorCard = memo(function ActorCard({ item }: ActorCardProps) {
   const { t } = useTranslation("metadata");
   const [errored, setErrored] = useState(false);

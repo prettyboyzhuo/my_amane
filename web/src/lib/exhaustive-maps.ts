@@ -13,7 +13,10 @@ import type {
   DownloadableResource,
   FacetKind,
   FacetSortField,
+  FeedItemReadState,
+  FeedItemState,
   LibraryAutomation,
+  LibraryIngest,
   LinkMode,
   LoggingConfig,
   MediaFileStatus,
@@ -21,7 +24,9 @@ import type {
   MetadataField,
   MetadataSortField,
   Mosaic,
+  RescrapeTarget,
   RoutineType,
+  SavedQueryEntity,
   ScanMode,
   SiteOutcomeKind,
   SortOrder,
@@ -31,33 +36,33 @@ import type {
 } from "@/client/types.gen";
 import { exhaustiveTuple } from "./exhaustive";
 
-// ============================================================================
-// 类型派生
-// ============================================================================
-
-/** 可提交任务的完整 payload 联合. */
 export type TaskPayload = SubmitTaskData["body"];
 
-/** 可提交任务的 type 字段联合. */
 export type SubmittableTaskType = TaskPayload["type"];
 
-/** 提取特定 task type 对应的 payload 形状. */
+/** 面板专用类型: 只能由清理面板连同清单标识提交, 不出现在手动提交入口. */
+export type PanelOnlyTaskType = "delete";
+
+export type ManualTaskType = Exclude<SubmittableTaskType, PanelOnlyTaskType>;
+
 export type PayloadFor<K extends SubmittableTaskType> = Extract<TaskPayload, { type: K }>;
 
-/** 日志级别 - 与 `LoggingConfig.level` / WS 日志事件同源. */
+/** 与 `LoggingConfig.level` / WS 日志事件同源. */
 export type LogLevel = NonNullable<LoggingConfig["level"]>;
 
-// ============================================================================
-// 运行时元组
-// ============================================================================
-
-/** `ScanMode` 的运行时枚举. */
 export const SCAN_MODES = exhaustiveTuple<ScanMode>()("add", "remove");
 
-/** `CacheKind` 的运行时枚举 (刮削可复用的缓存种类). */
 export const CACHE_KINDS = exhaustiveTuple<CacheKind>()("metadata", "trans");
 
-/** `ContentType` 的运行时枚举. */
+export const RESCRAPE_TARGETS = exhaustiveTuple<RescrapeTarget>()("metadata", "actor");
+
+/** 查询预设的交付类型; 顺序即创建表单与筛选的选项顺序. */
+export const SAVED_QUERY_ENTITIES = exhaustiveTuple<SavedQueryEntity>()(
+  "metadata",
+  "actor",
+  "data",
+);
+
 export const CONTENT_TYPES = exhaustiveTuple<ContentType>()(
   "censored",
   "uncensored",
@@ -68,18 +73,15 @@ export const CONTENT_TYPES = exhaustiveTuple<ContentType>()(
   "hentai",
 );
 
-/** `Mosaic` 文件马赛克标记. */
-export const MOSAICS = exhaustiveTuple<Mosaic>()("uncensored", "cracked", "leaked");
+export const MOSAICS = exhaustiveTuple<Mosaic>()("censored", "uncensored", "cracked", "leaked");
 
-/** 文件清晰度闭合值, 顺序即优先级 (高→低). 与后端 DEFINITION_VALUES 对齐. */
+/** 顺序即优先级 (高→低). 与后端 DEFINITION_VALUES 对齐. */
 export const FILE_DEFINITIONS = exhaustiveTuple<
   "8K" | "4K" | "1440p" | "1080p" | "720p" | "480p" | "HD" | "SD"
 >()("8K", "4K", "1440p", "1080p", "720p", "480p", "HD", "SD");
 
-/** `TaskStatus` 的运行时枚举. */
 export const TASK_STATUSES = exhaustiveTuple<TaskStatus>()("queued", "running", "done", "failed");
 
-/** `TaskType` 的运行时枚举. */
 export const TASK_TYPES = exhaustiveTuple<TaskType>()(
   "refresh",
   "organize",
@@ -89,9 +91,10 @@ export const TASK_TYPES = exhaustiveTuple<TaskType>()(
   "r18_import",
   "actor_scrape",
   "rescrape",
+  "scan_invalid",
+  "delete",
 );
 
-/** `DownloadableResource` 的运行时枚举 (刮削下载 / 整理复制). */
 export const DOWNLOADABLE_RESOURCES = exhaustiveTuple<DownloadableResource>()(
   "thumb",
   "poster",
@@ -99,13 +102,12 @@ export const DOWNLOADABLE_RESOURCES = exhaustiveTuple<DownloadableResource>()(
   "trailer",
 );
 
-/** `LibraryAutomation` 的运行时枚举 (库发现侧自动化级别). */
 export const LIBRARY_AUTOMATIONS = exhaustiveTuple<LibraryAutomation>()("none", "watch", "scrape");
 
-/** `LinkMode` 的运行时枚举 (整理后链接入口). */
+export const LIBRARY_INGESTS = exhaustiveTuple<LibraryIngest>()("native", "clouddrive");
+
 export const LINK_MODES = exhaustiveTuple<LinkMode>()("strm", "symlink");
 
-/** `MediaFileStatus` 的运行时枚举. */
 export const MEDIA_FILE_STATUSES = exhaustiveTuple<MediaFileStatus>()(
   "pending",
   "scraped",
@@ -113,7 +115,6 @@ export const MEDIA_FILE_STATUSES = exhaustiveTuple<MediaFileStatus>()(
   "skip",
 );
 
-/** `MediaSortField` 的运行时枚举. */
 export const MEDIA_SORT_FIELDS = exhaustiveTuple<MediaSortField>()(
   "number",
   "path",
@@ -123,7 +124,6 @@ export const MEDIA_SORT_FIELDS = exhaustiveTuple<MediaSortField>()(
   "updated_at",
 );
 
-/** `RoutineType` 的运行时枚举. */
 export const ROUTINE_TYPES = exhaustiveTuple<RoutineType>()(
   "cleanup",
   "upscale",
@@ -131,7 +131,6 @@ export const ROUTINE_TYPES = exhaustiveTuple<RoutineType>()(
   "rescrape",
 );
 
-/** `FacetKind` 的运行时枚举 (分类索引种类). */
 export const FACET_KINDS = exhaustiveTuple<FacetKind>()(
   "actor",
   "director",
@@ -141,6 +140,10 @@ export const FACET_KINDS = exhaustiveTuple<FacetKind>()(
   "series",
   "user_tag",
 );
+
+export const FEED_ITEM_STATES = exhaustiveTuple<FeedItemState>()("active", "ignored", "all");
+
+export const FEED_ITEM_READ_STATES = exhaustiveTuple<FeedItemReadState>()("unread", "read", "all");
 
 /** 分类浏览页 kind (演员已独立为 /actors). */
 export const CATALOG_FACET_KINDS = exhaustiveTuple<Exclude<FacetKind, "actor">>()(
@@ -152,7 +155,6 @@ export const CATALOG_FACET_KINDS = exhaustiveTuple<Exclude<FacetKind, "actor">>(
   "user_tag",
 );
 
-/** `ActorSortField` 的运行时枚举. */
 export const ACTOR_SORT_FIELDS = exhaustiveTuple<ActorSortField>()(
   "name",
   "count",
@@ -166,11 +168,11 @@ export const ACTOR_SORT_FIELDS = exhaustiveTuple<ActorSortField>()(
   "cup",
 );
 
-/** 可提交任务类型的运行时枚举. */
-export const SUBMITTABLE_TASK_TYPES = exhaustiveTuple<SubmittableTaskType>()(
+export const MANUAL_TASK_TYPES = exhaustiveTuple<ManualTaskType>()(
   "scrape",
   "refresh",
   "organize",
+  "scan_invalid",
   "cleanup",
   "upscale",
   "r18_import",
@@ -178,13 +180,11 @@ export const SUBMITTABLE_TASK_TYPES = exhaustiveTuple<SubmittableTaskType>()(
   "rescrape",
 );
 
-/** `SiteOutcomeKind` 的运行时枚举 (刮削站点结果分组顺序). */
+/** 刮削站点结果分组顺序. */
 export const SITE_OUTCOME_KINDS = exhaustiveTuple<SiteOutcomeKind>()("ok", "cache_hit", "failed");
 
-/** `SortOrder` 的运行时枚举. */
 export const SORT_ORDERS = exhaustiveTuple<SortOrder>()("asc", "desc");
 
-/** `MetadataSortField` 的运行时枚举. */
 export const METADATA_SORT_FIELDS = exhaustiveTuple<MetadataSortField>()(
   "number",
   "title",
@@ -195,10 +195,8 @@ export const METADATA_SORT_FIELDS = exhaustiveTuple<MetadataSortField>()(
   "file_count",
 );
 
-/** `FacetSortField` 的运行时枚举. */
 export const FACET_SORT_FIELDS = exhaustiveTuple<FacetSortField>()("name", "count");
 
-/** `MetadataField` 的运行时枚举 (合并 / 翻译等字段全集). */
 export const METADATA_FIELDS = exhaustiveTuple<MetadataField>()(
   "title",
   "plot",
@@ -217,7 +215,6 @@ export const METADATA_FIELDS = exhaustiveTuple<MetadataField>()(
   "score",
 );
 
-/** `LoggingConfig.level` 的运行时枚举. */
 export const LOG_LEVELS = exhaustiveTuple<LogLevel>()(
   "DEBUG",
   "INFO",

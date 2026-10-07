@@ -1,13 +1,8 @@
-"""r18.dev dump 导入器.
+"""把 r18 PostgreSQL dump 导入用户自备的 PG 实例.
 
-把 r18 提供的完整 PostgreSQL dump (.sql.gz) 灌入用户自备的 PG 实例. 全程在临时库进行,
-schema 校验通过后才原子换名为正式库; 导入失败永不污染线上镜像, 坏 dump 最多导致一次
-被跳过的导入, 线上停留在上一个 good 版本.
-
-流程: HEAD 探测 ETag/大小 → 与已导入元数据比对 (相同则跳过) → 下载 → gunzip →
-建临时库 → psql -f 导入 → schema 探针校验 → DROP 旧库 + RENAME 临时库 → 创建/授权只读角色.
-
-依赖外部 psql 子进程 (容器需 postgresql-client). 连接信息全部来自 R18Config, 无全局状态.
+全程在临时库进行; schema 校验通过后才原子换名为正式库.
+导入失败不允许污染线上镜像; 坏 dump 最多导致一次被跳过的导入.
+依赖外部 ``psql`` (容器需 postgresql-client).
 """
 
 import asyncio
@@ -34,8 +29,6 @@ logger = structlog.get_logger()
 
 
 class RemoteMeta(NamedTuple):
-    """远程 dump 文件元数据, 用于判断是否需要重新导入."""
-
     filename: str
     size: int
     etag: str | None
@@ -50,16 +43,11 @@ class RemoteMeta(NamedTuple):
 
 
 class R18Importer:
-    """编排一次完整的 dump 导入. 无状态地接收 R18Config + WebClient."""
-
     def __init__(self, config: R18Config, web_client: WebClient):
         self.config = config
         self.client = web_client
 
-    # --- 远程元数据 ---
-
     async def fetch_remote_meta(self) -> RemoteMeta | None:
-        """探测下载地址, 跟随一次重定向拿到真实文件的 ETag/Content-Length."""
         url = self.config.download_url
         if not url:
             return None
@@ -85,18 +73,14 @@ class R18Importer:
             file_url=actual_url,
         )
 
-    # --- 主流程 ---
-
     async def run(self, current_meta: RemoteMeta | None = None) -> tuple[bool, str, RemoteMeta | None]:
-        """执行导入. 返回 (是否成功, 错误信息, 新文件元数据).
-
-        current_meta: 已导入版本的元数据; 与远程一致时跳过 (返回 success=True).
-        """
+        # 与远程一致时跳过, 返回 success=True.
         if not self.config.dsn:
             return False, "r18.dsn 未配置", None
 
         admin_template = create_async_engine(self.config.admin_url("template1"), isolation_level="AUTOCOMMIT")
         try:
+            # 探测远程 dump, 与已导入版本一致则跳过.
             meta = await self.fetch_remote_meta()
             if meta and meta.same_as(current_meta):
                 logger.info("r18 dump unchanged, skip import", etag=meta.etag)
@@ -107,6 +91,7 @@ class R18Importer:
             if not file_url:
                 return False, "无下载地址且未配置 download_url", None
 
+            # 下载并解压.
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_path = Path(tmp)
                 archive = tmp_path / filename
@@ -126,6 +111,7 @@ class R18Importer:
                     await _create_db(conn, temp_db)
                 logger.debug("r18 import temp db created", db=temp_db)
 
+                # 导入临时库并校验 schema.
                 await self._psql_import(sql_file, temp_db)
 
                 ok, verr = await self._validate(temp_db)
@@ -136,6 +122,7 @@ class R18Importer:
                     return False, f"schema 校验失败, 已回滚: {verr}", None
                 logger.debug("r18 import schema validated", db=temp_db)
 
+                # 校验通过后原子换名.
                 logger.debug("r18 import swapping db", old=temp_db, new=self.config.db_name)
                 async with admin_template.connect() as conn:
                     if await _db_exists(conn, self.config.db_name):
@@ -154,16 +141,14 @@ class R18Importer:
         finally:
             await admin_template.dispose()
 
-    # --- 内部步骤 ---
-
     async def _temp_db_name(self, engine) -> str:
-        """临时库名: <db_name>_import_<毫秒>. 用 PG clock 避免 Date.now 之类的不确定性."""
+        # 临时库名用 PG clock, 避免客户端时钟不确定.
         async with engine.connect() as conn:
             epoch = (await conn.execute(text("SELECT (extract(epoch from clock_timestamp()) * 1000)::bigint"))).scalar()
         return f"{self.config.db_name}_import_{epoch}"
 
     async def _psql_import(self, sql_file: Path, db_name: str) -> None:
-        """用 psql -f 导入. dump 含 COPY/函数等, 走原生 psql 最稳."""
+        # dump 含 COPY / 函数等, 必须用原生 psql -f.
         if not self.config.dsn:
             raise RuntimeError("r18.dsn 未配置")
         logger.info("r18 import psql starting", db=db_name, file=str(sql_file), size=sql_file.stat().st_size)
@@ -196,7 +181,7 @@ class R18Importer:
         logger.info("r18 import psql done", db=db_name)
 
     async def _validate(self, db_name: str) -> tuple[bool, str]:
-        """用 repository 的探针 SQL 校验临时库 schema. 任一探针失败即不兼容."""
+        # 任一探针失败即不兼容, 拒绝换名.
         logger.debug("r18 import validating schema", db=db_name, probes=len(R18Repository.schema_probes()))
         engine = create_async_engine(self.config.admin_url(db_name))
         try:
@@ -211,7 +196,6 @@ class R18Importer:
             await engine.dispose()
 
     async def _ensure_readonly_role(self, admin_template) -> None:
-        """创建 (若不存在) 并授权只读角色. 标识符/字面值经 PG quote 函数转义."""
         async with admin_template.connect() as conn:
             role = await _quote_ident(conn, self.config.read_user)
             db = await _quote_ident(conn, self.config.db_name)
@@ -234,9 +218,6 @@ class R18Importer:
                 await conn.execute(text(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {role}"))
         finally:
             await db_engine.dispose()
-
-
-# --- 模块级 DB 工具 (AUTOCOMMIT 连接执行) ---
 
 
 def _gunzip(src: Path, dst: Path) -> None:

@@ -5,15 +5,11 @@ from ...plugins.models import PluginConfig, SourceDescriptor
 
 
 class PluginConfigUpdate(BaseModel):
-    """Patch one plugin's persisted configuration."""
-
     enabled: bool | None = None
     config: dict[str, object] = Field(default_factory=dict)
 
 
 class PluginResponse(BaseModel):
-    """Installed source plugin and its runtime descriptor."""
-
     descriptor: SourceDescriptor
     config: PluginConfig
     config_schema: dict[str, object]

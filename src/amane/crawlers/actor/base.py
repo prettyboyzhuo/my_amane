@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
+from ...net.connectivity import ConnectivityOutcome
 from .models import ActorMetadata
 
 if TYPE_CHECKING:
@@ -15,19 +16,11 @@ if TYPE_CHECKING:
 
 
 class ActorFetcher(Protocol):
-    """按名抓取演员元数据 - Handler / Factory 共用契约."""
-
     async def fetch(self, name: str) -> ActorMetadata | None: ...
 
 
 class ActorCrawler(ABC):
-    """
-    演员爬虫基类.
-
-    公开接口: fetch(name) -> ActorMetadata | None
-    默认 Template Method: _search(name) -> URL | None, _scrape(url) -> ActorMetadata | None
-    纯头像源可 override fetch() 直接查索引.
-    """
+    """默认 ``_search`` → ``_scrape``. 纯头像源可 override ``fetch()`` 直接查索引."""
 
     @classmethod
     @abstractmethod
@@ -44,7 +37,6 @@ class ActorCrawler(ABC):
         self._resolve_config()
 
     def _resolve_config(self) -> None:
-        """合并 CrawlerProfile 与 SiteConfig."""
         if self.config is None:
             return
         if self.config.base_url:
@@ -61,16 +53,18 @@ class ActorCrawler(ABC):
             return self._logger
 
     async def fetch(self, name: str) -> ActorMetadata | None:
-        """按演员名抓取; 未命中返回 None. HTTP / 拦截失败冒泡 SourceError."""
+        # 未命中返回 None. HTTP / 拦截失败冒泡 SourceError, 不允许当作 None.
         url = await self._search(name)
         if not url:
             return None
         return await self._scrape(url)
 
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """连通性自检: 缺省 GET ``base_url``, 用与刮削相同的视图 (渲染来源走浏览器)."""
+        return await self.client.check(self.base_url, cookies=self.cookies, headers=self.headers)
+
     async def _search(self, name: str) -> str | None:
-        """名 → 详情 URL. 子类实现; 纯索引源可不用."""
         raise NotImplementedError
 
     async def _scrape(self, url: str) -> ActorMetadata | None:
-        """详情 URL → ActorMetadata. 子类实现."""
         raise NotImplementedError

@@ -1,4 +1,4 @@
-"""系统级端点: 桌面契约 / 重启 / 版本检查. 不进任务队列."""
+"""桌面契约 / 重启 / 版本检查. 不进入任务队列."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ async def _trigger_shutdown(app: FastAPI) -> None:
 
 @router.get("/desktop", response_model=DesktopResponse)
 async def desktop_info(runtime: RuntimeDep) -> DesktopResponse:
-    """菜单栏 / 托盘 UI 专用信息 (版本 + 数据目录 + 是否有监督者), bar 进程轮询本端点."""
     return DesktopResponse(
         version=get_version(), data_dir=str(runtime.config.cold.data_dir), supervised=runtime.config.cold.supervised
     )

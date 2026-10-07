@@ -1,14 +1,4 @@
-import {
-  ActionIcon,
-  Badge,
-  Box,
-  Group,
-  NavLink,
-  ScrollArea,
-  Text,
-  TextInput,
-  Tooltip,
-} from "@mantine/core";
+import { ActionIcon, Badge, Box, Group, NavLink, ScrollArea, Text, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconChevronDown,
@@ -25,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { listAllFeedItemsQueryKey, listFeedsQueryKey } from "@/client/@tanstack/react-query.gen";
 import { pollFeed } from "@/client/sdk.gen";
 import type { FeedResponse } from "@/client/types.gen";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { extractErrorMessage } from "@/lib/api-error";
 import {
   ancestorGroupPaths,
@@ -32,6 +23,7 @@ import {
   feedDisplayName,
   feedGroup,
   filterFeedsByQuery,
+  sumFeedUnread,
   type FeedFolderNode,
   type FeedTreeNode,
   UNGROUPED_GROUP,
@@ -84,21 +76,30 @@ function ManageIconButton({
   children: ReactNode;
 }) {
   return (
-    <Tooltip label={label} withArrow>
-      <ActionIcon
-        variant="subtle"
-        size="sm"
-        color="gray"
-        aria-label={label}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onClick();
-        }}
-      >
-        {children}
-      </ActionIcon>
-    </Tooltip>
+    <HintedActionIcon
+      label={label}
+      variant="subtle"
+      size="sm"
+      color="gray"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {children}
+    </HintedActionIcon>
+  );
+}
+
+function UnreadCountBadge({ count }: { count: number }) {
+  if (count <= 0) {
+    return null;
+  }
+  return (
+    <Badge size="xs" variant="light" color="violet">
+      {count}
+    </Badge>
   );
 }
 
@@ -120,23 +121,29 @@ function FeedLeafNav({
   onPoll: (feed: FeedResponse) => void;
 }) {
   const { t } = useTranslation("feeds");
+  const unread = feed.unread_count ?? 0;
   return (
     <NavLink
       component="button"
-      label={feedDisplayName(feed)}
+      label={
+        <Text span size="sm" fw={unread > 0 ? 700 : 500} lineClamp={1}>
+          {feedDisplayName(feed)}
+        </Text>
+      }
       leftSection={
         <ManageIconButton label={t("actions.openInSources")} onClick={() => onManage(feed)}>
           <IconRss size={16} />
         </ManageIconButton>
       }
       rightSection={
-        <Tooltip label={t("actions.poll")} withArrow>
-          <ActionIcon
+        <Group gap={6} wrap="nowrap">
+          <UnreadCountBadge count={unread} />
+          <HintedActionIcon
             variant="subtle"
             size="sm"
             color="gray"
             loading={polling}
-            aria-label={t("actions.poll")}
+            label={t("actions.poll")}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -144,8 +151,8 @@ function FeedLeafNav({
             }}
           >
             <IconRefresh size={14} />
-          </ActionIcon>
-        </Tooltip>
+          </HintedActionIcon>
+        </Group>
       }
       disableRightSectionRotation
       active={isSelected(selection, { kind: "feed", id: feed.id })}
@@ -211,11 +218,7 @@ function FolderNav({
             </ManageIconButton>
           </Group>
         }
-        rightSection={
-          <Badge size="xs" variant="light" color="gray">
-            {node.feedCount}
-          </Badge>
-        }
+        rightSection={<UnreadCountBadge count={node.unreadCount} />}
         disableRightSectionRotation
         active={selected}
         onClick={() => {
@@ -427,11 +430,7 @@ export function FeedSidebar({
       <ScrollArea style={{ flex: 1 }} offsetScrollbars type="hover">
         <NavLink
           label={t("sidebar.all")}
-          rightSection={
-            <Badge size="xs" variant="light" color="gray">
-              {feeds.length}
-            </Badge>
-          }
+          rightSection={<UnreadCountBadge count={sumFeedUnread(feeds)} />}
           active={selection.kind === "all"}
           onClick={onSelectAll}
         />
@@ -439,11 +438,7 @@ export function FeedSidebar({
           <NavLink
             label={t("sidebar.ungrouped")}
             leftSection={<IconFolder size={16} />}
-            rightSection={
-              <Badge size="xs" variant="light" color="gray">
-                {tree.ungrouped.length}
-              </Badge>
-            }
+            rightSection={<UnreadCountBadge count={sumFeedUnread(tree.ungrouped)} />}
             disableRightSectionRotation
             active={selection.kind === "ungrouped"}
             childrenOffset={12}

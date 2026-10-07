@@ -1,14 +1,16 @@
 """测试刮削期资源管线 materialize_images (选源/裁剪/就地超分)."""
 
+from io import BytesIO
 from typing import TYPE_CHECKING, cast
 
 import pytest
 from PIL import Image
 
-from amane.config import HotSettings
+from amane.config import HotSettings, ScrapingConfig
 from amane.enums import DownloadableResource
-from amane.media import ResourceStore, materialize_images
+from amane.media import ResourceStore, derived_locator, materialize_images
 from amane.media import pipeline as pipeline_mod
+from amane.net.errors import RequestError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,12 +19,16 @@ if TYPE_CHECKING:
 
 
 class FakeClient:
-    """伪 WebClient: download 按 url 写出预设尺寸的图片 (或视频占位); fail 集合内 URL 下载失败."""
+    """伪 WebClient: download 按 url 写出预设尺寸的图片 (或视频占位); fail 集合内 URL 下载失败.
+
+    get_prefix 供未下载候选探尺寸 (不落盘); sizes 未收录或 fail 内的 URL 视为取不到.
+    """
 
     def __init__(self, sizes: dict[str, tuple[int, int]], fail: set[str] | None = None):
         self._sizes = sizes
         self.fail = fail or set()
         self.downloaded: list[str] = []
+        self.probed: list[str] = []
 
     async def download(self, url: str, dest: Path, **kwargs) -> bool:
         self.downloaded.append(url)
@@ -36,8 +42,20 @@ class FakeClient:
         Image.new("RGB", size, "blue").save(dest)
         return True
 
+    async def get_prefix(self, url: str, *, size: int, **kwargs) -> bytes:
+        self.probed.append(url)
+        dims = self._sizes.get(url)
+        if url in self.fail or dims is None:
+            raise RequestError(url, "probe failed")
+        buffer = BytesIO()
+        Image.new("RGB", dims, "blue").save(buffer, format="PNG")
+        return buffer.getvalue()
+
     async def get_filesize(self, url: str, **kwargs) -> int | None:
         return None
+
+    async def resolve_final_url(self, url: str, **kwargs) -> str:
+        return url
 
 
 @pytest.mark.asyncio
@@ -148,8 +166,6 @@ async def test_eager_sr_overwrites(resource_store: ResourceStore, tmp_path: Path
 @pytest.mark.asyncio
 async def test_download_resources_gates_acquire(resource_store: ResourceStore, tmp_path: Path):
     """未选中的类型不写入 Resource."""
-    from amane.config import DownloadableResource, ScrapingConfig
-
     client = FakeClient(
         {
             "https://s/t.jpg": (800, 538),
@@ -177,7 +193,7 @@ async def test_download_resources_gates_acquire(resource_store: ResourceStore, t
 
 
 def test_success_first_partition():
-    """稳定分区: 成功保序前置, 失败保序沉底; 空成功集幂等."""
+    """稳定分区: 成功保序前置, 失败保序排到末尾; 空成功集幂等."""
     cases = [
         (["d1", "l1", "d2", "l2"], {"l1", "l2"}, ["l1", "l2", "d1", "d2"]),
         (["a", "b"], {"a", "b"}, ["a", "b"]),  # 全成功
@@ -243,22 +259,82 @@ async def test_all_urls_fail_keeps_order(resource_store: ResourceStore, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_unselected_kind_not_reordered(resource_store: ResourceStore, tmp_path: Path):
-    """未选中下载的类型不重排 (无逐 URL 成败信息)."""
-    from amane.config import DownloadableResource, ScrapingConfig
-
+async def test_unselected_kind_ranked_by_probed_size(resource_store: ResourceStore, tmp_path: Path):
+    """未选中下载的 poster 只探头部尺寸: 仍按分辨率降序, 且不落盘."""
     cfg = HotSettings(scraping=ScrapingConfig(download_resources=[DownloadableResource.thumb], field_priority={}))
-    client = FakeClient(sizes={"https://s/t.jpg": (800, 538)})
+    client = FakeClient(sizes={"https://s/small.jpg": (200, 300), "https://s/big.jpg": (800, 1200)})
     out = await materialize_images(
-        ["https://s/p1.jpg", "https://s/p2.jpg"],
-        ["https://s/t.jpg"],
+        ["https://s/small.jpg", "https://s/big.jpg"],
+        [],
         [],
         resource_store,
         cast("WebClient", client),
         cfg,
         tmp_path,
     )
-    assert out.poster_urls == ["https://s/p1.jpg", "https://s/p2.jpg"]
+    assert out.poster_urls == ["https://s/big.jpg", "https://s/small.jpg"]
+    assert client.downloaded == []  # 未选中下载则不落盘
+    assert client.probed == ["https://s/small.jpg", "https://s/big.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_unselected_kind_probe_failure_ordered_last(resource_store: ResourceStore, tmp_path: Path):
+    """探尺寸失败的候选 (不可达 / 非图像) 保序垫底, 可读候选按分辨率降序."""
+    cfg = HotSettings(scraping=ScrapingConfig(download_resources=[], field_priority={}))
+    client = FakeClient({"https://s/mid.jpg": (400, 600)}, fail={"https://s/dead.jpg"})
+    urls = ["https://s/dead.jpg", "https://s/mid.jpg", "https://s/notimage.png"]
+    out = await materialize_images(list(urls), list(urls), [], resource_store, cast("WebClient", client), cfg, tmp_path)
+    assert out.poster_urls == ["https://s/mid.jpg", "https://s/dead.jpg", "https://s/notimage.png"]
+    assert out.thumb_urls == ["https://s/mid.jpg", "https://s/dead.jpg", "https://s/notimage.png"]
+
+
+@pytest.mark.asyncio
+async def test_downloaded_kind_not_probed(resource_store: ResourceStore, tmp_path: Path):
+    """已选中下载的类型用本地文件尺寸排序, 不发探尺寸请求."""
+    client = FakeClient({"https://s/small.jpg": (200, 300), "https://s/big.jpg": (800, 1200)})
+    out = await materialize_images(
+        ["https://s/small.jpg", "https://s/big.jpg"],
+        [],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        HotSettings(),
+        tmp_path,
+    )
+    assert out.poster_urls == ["https://s/big.jpg", "https://s/small.jpg"]
+    assert client.probed == []
+    assert client.downloaded == ["https://s/small.jpg", "https://s/big.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_crop_prefers_highest_resolution_thumb_without_thumb_download(
+    resource_store: ResourceStore, tmp_path: Path
+):
+    """poster 选中下载而 thumb 未选: 触发裁剪时临时 acquire 分辨率最高的 thumb, 非列表首个."""
+    cfg = HotSettings(scraping=ScrapingConfig(download_resources=[DownloadableResource.poster], field_priority={}))
+    client = FakeClient(
+        {
+            "https://s/small_cover.jpg": (800, 538),
+            "https://s/big_cover.jpg": (1600, 1076),
+            "https://s/poster.jpg": (300, 420),  # b/h=0.39 < 0.9 → 裁
+        }
+    )
+    out = await materialize_images(
+        ["https://s/poster.jpg"],
+        ["https://s/small_cover.jpg", "https://s/big_cover.jpg"],
+        [],
+        resource_store,
+        cast("WebClient", client),
+        cfg,
+        tmp_path,
+    )
+    assert "https://s/big_cover.jpg" in client.downloaded
+    assert "https://s/small_cover.jpg" not in client.downloaded
+    got = await resource_store.get_by_url_hash(out.poster_urls[0].rsplit("/", 1)[-1])
+    assert got is not None
+    crop_res, crop_path = got
+    assert crop_res.url == derived_locator("https://s/big_cover.jpg", "crop", "0.7000")
+    assert Image.open(crop_path).size == (753, 1076)  # int(1076 * 0.7)
 
 
 @pytest.mark.asyncio

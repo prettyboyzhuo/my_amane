@@ -11,9 +11,7 @@ import { useProgressStore } from "@/stores/progress";
  * WebSocket 用 on* 才能在 teardown 里 `onclose = null`, 避免 close() 触发重连.
  */
 
-// ── 类型 ──────────────────────────────────────────
-
-/** WebSocket 事件类型, 对应后端 broadcast 的 event type. */
+/** 对应后端 broadcast 的 event type. */
 export type EventType =
   | "task.started"
   | "task.progress"
@@ -39,7 +37,6 @@ export interface WSEvent {
   timestamp: string;
 }
 
-/** 事件处理回调, 由订阅方提供. */
 export type EventHandler = (event: WSEvent) => void;
 
 function parseWSEvent(raw: unknown): WSEvent | null {
@@ -53,11 +50,10 @@ function parseWSEvent(raw: unknown): WSEvent | null {
   };
 }
 
-// ── WS URL 推导 ──────────────────────────────────
-
+// WebSocket URL: 握手携带 cookie, token 不写入查询串
 function getWsUrl(): string {
   // 浏览器 WebSocket 无法自定义 header; 握手即同源 HTTP GET, 自动携带
-  // amane_token cookie (首次 Bearer 认证后由服务端下发) — token 不进 URL.
+  // amane_token cookie (首次 Bearer 认证后由服务端下发) — token 不写入 URL.
   const apiUrl = import.meta.env.VITE_API_URL;
   if (apiUrl) {
     const url = new URL(apiUrl);
@@ -71,18 +67,8 @@ function getWsUrl(): string {
 const RECONNECT_BASE_DELAY = 1000;
 const RECONNECT_MAX_DELAY = 30000;
 
-// ── 连接管理器 (模块级单例) ──────────────────────
-
 /**
- * WebSocket 连接管理器 - 模块级单例, 与 React 生命周期解耦.
- *
- * 职责:
- * - 持有全局唯一 WebSocket 实例
- * - 指数退避自动重连
- * - 解析消息并分发给所有订阅者
- * - 更新 connection store 状态 (Zustand vanilla API, 无 React 依赖)
- *
- * 订阅方通过 `subscribe(handler)` 注册事件处理, 返回取消函数.
+ * 模块级单例, 与 React 生命周期解耦.
  * 首个订阅者触发连接, 末个订阅者取消后断开.
  */
 class ConnectionManager {
@@ -91,10 +77,7 @@ class ConnectionManager {
   private attempt = 0;
   private handlers = new Set<EventHandler>();
 
-  /**
-   * 确保连接处于活跃状态 (已连接 / 正在连接 / 等待重连).
-   * 幂等 - 已存在连接或重连定时器时不做重复工作.
-   */
+  /** 已存在连接或重连定时器时不再发起. */
   start(): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
@@ -116,8 +99,6 @@ class ConnectionManager {
     };
   }
 
-  // ── 内部 ──────────────────────────────────────
-
   private establish(): void {
     this.ws = new WebSocket(getWsUrl());
 
@@ -135,7 +116,7 @@ class ConnectionManager {
           handler(parsed);
         }
       } catch {
-        // 忽略格式错误的消息
+        // 忽略格式错误的消息, 不断开连接.
       }
     };
 
@@ -172,12 +153,9 @@ class ConnectionManager {
   }
 }
 
-/** 全局单例. */
 export const connectionManager = new ConnectionManager();
 
-// ── 事件分发 ─────────────────────────────────────
-
-/** 从 event.data 安全取数字字段, 非数字回退到默认值. */
+/** 从 event.data 取数字字段, 非数字回退到默认值. */
 function numField(data: Record<string, unknown>, key: string, fallback: number): number {
   const v = data[key];
   return typeof v === "number" ? v : fallback;
@@ -192,7 +170,7 @@ export function invalidateTaskQueries(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: [{ _id: "getTaskChildren" }] });
 }
 
-/** 事件分发 - 根据 event.type 更新对应 store 并触发 query invalidation. */
+// 按 event.type 更新 store 并失效对应 query
 function handleEvent(queryClient: QueryClient, event: WSEvent) {
   switch (event.type) {
     case "task.started":
@@ -237,10 +215,9 @@ function handleEvent(queryClient: QueryClient, event: WSEvent) {
   }
 }
 
-// ── 断连轮询 ─────────────────────────────────────
-
 const POLL_TASKS_INTERVAL = 5000;
 
+// 断连降级为轮询
 function setupFallbackPolling(queryClient: QueryClient): () => void {
   let taskInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -259,7 +236,7 @@ function setupFallbackPolling(queryClient: QueryClient): () => void {
     }
   };
 
-  // 订阅连接状态变化, 断连时自动开启轮询, 恢复后停止
+  // 断连开启轮询, 恢复后停止
   const unsub = useConnectionStore.subscribe((state, prevState) => {
     if (state.status === prevState.status) return;
     if (state.status === "connected") {
@@ -269,7 +246,7 @@ function setupFallbackPolling(queryClient: QueryClient): () => void {
     }
   });
 
-  // 初始状态检查
+  // 当前已断连则立刻开始
   if (useConnectionStore.getState().status !== "connected") {
     start();
   }
@@ -280,17 +257,9 @@ function setupFallbackPolling(queryClient: QueryClient): () => void {
   };
 }
 
-// ── 初始化入口 ───────────────────────────────────
-
 /**
- * 初始化全局 WebSocket 连接.
- *
- * 在应用入口调用一次即可:
- * - 建立 WebSocket 单连接 (指数退避重连)
- * - 注册事件分发 (stores + query invalidation)
- * - 断连时自动降级为轮询
- *
- * 返回清理函数, 通常仅在测试环境使用.
+ * 应用入口调用一次: WebSocket 单连接 + 事件分发 + 断连降级为轮询.
+ * 返回的清理函数通常仅测试使用.
  */
 export function initConnection(queryClient: QueryClient): () => void {
   const unsubEvent = connectionManager.subscribe((event) => {

@@ -33,6 +33,8 @@ class TestSchedules:
         assert data["task_type"] == "cleanup"
         assert data["enabled"] is True
         assert data["payload"]["remove_missing_files"] is False
+        assert data["payload"]["type"] == "cleanup"
+        assert data["payload"]["remove_unreferenced_resources"] is True
         fetched = await client.get(f"schedules/{data['id']}")
         assert fetched.status_code == 200
         assert fetched.json()["id"] == data["id"]
@@ -57,10 +59,28 @@ class TestSchedules:
         assert upscale.json()["task_type"] == "upscale"
         assert upscale.json()["payload"]["limit"] == 50
 
+        rescrape = await client.post(
+            "schedules",
+            json={
+                "cron": "0 4 * * *",
+                "submission": {"type": "rescrape", "limit": 10, "targets": ["metadata", "actor"]},
+            },
+        )
+        assert rescrape.status_code == 201
+        assert rescrape.json()["task_type"] == "rescrape"
+        assert set(rescrape.json()["payload"]["targets"]) == {"metadata", "actor"}
+        assert isinstance(rescrape.json()["payload"]["targets"], list)
+
         listed = await client.get("schedules")
-        assert listed.json()["total"] == 3
+        assert listed.json()["total"] == 4
 
         sched = await repo.create_schedule(cron="0 0 * * *", task_type=RoutineType.CLEANUP, payload={}, name="old")
+        sparse = await client.get(f"schedules/{sched.id}")
+        assert sparse.json()["payload"] == {
+            "type": "cleanup",
+            "remove_missing_files": True,
+            "remove_unreferenced_resources": True,
+        }
         patched = await client.patch(f"schedules/{sched.id}", json={"name": "updated", "enabled": False})
         assert patched.json()["name"] == "updated"
         assert patched.json()["enabled"] is False
@@ -86,4 +106,9 @@ class TestSchedules:
         ).status_code == 422
         assert (
             await client.post("schedules", json={"cron": "0 * * * *", "submission": {"type": "invalid_type"}})
+        ).status_code == 422
+        assert (
+            await client.post(
+                "schedules", json={"cron": "0 * * * *", "submission": {"type": "rescrape", "targets": []}}
+            )
         ).status_code == 422

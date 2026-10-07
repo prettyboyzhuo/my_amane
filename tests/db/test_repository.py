@@ -1,14 +1,18 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, cast, get_type_hints
 
 import pytest
 
+from amane.aggregate.actor import AggregatedActor
 from amane.db.models import (
+    Actor,
     FacetKind,
     FacetRuleAction,
     MediaFileStatus,
     MediaSortField,
+    Metadata,
     MetadataSortField,
     RoutineType,
     SortOrder,
@@ -16,10 +20,19 @@ from amane.db.models import (
     TaskStatus,
     TaskType,
 )
-from amane.db.repo_types import _MEDIA_SORT_COLUMNS, _METADATA_SORT_COLUMNS, _TASK_SORT_COLUMNS, ActorBrowseParams
-from amane.enums import LibraryAutomation
+from amane.db.repo_types import (
+    _MEDIA_SORT_COLUMNS,
+    _METADATA_SORT_COLUMNS,
+    _TASK_SORT_COLUMNS,
+    ActorBrowseParams,
+    ActorPersonFields,
+    MetadataFields,
+    WriteMode,
+)
+from amane.enums import ActorField, ActorGender, LibraryAutomation, MetadataField
 from amane.organize.path_templates import VIDEO_TEMPLATE_DEFAULT
 from amane.parsing import ContentType, Mosaic
+from amane.utils.path import resolved_path
 from tests.helpers import assert_exhaustive_enum
 
 if TYPE_CHECKING:
@@ -65,6 +78,27 @@ class TestMediaFileRepo:
     @pytest.mark.asyncio(loop_scope="function")
     async def test_get_by_path_not_found(self, repo: Repository):
         assert await repo.get_media_file_by_path("/nonexistent") is None
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_path_identity_is_nfc(self, repo: Repository):
+        """写入与按路径查找一律 NFC; NFD 查询命中已存的 NFC 行."""
+        nfc = "/video/\u3058.mp4"
+        nfd = "/video/\u3057\u3099.mp4"
+        assert nfc != nfd
+        created = await repo.create_media_file(library_id=1, path=nfd, number="NFC-1")
+        assert created.id is not None
+        assert created.path == nfc
+        found = await repo.get_media_file_by_path(nfd)
+        assert found is not None
+        assert found.id == created.id
+        assert found.path == nfc
+        updated = await repo.update_media_file(created.id, path=nfd)
+        assert updated is not None
+        assert updated.path == nfc
+        valid = await repo.get_valid([nfd])
+        assert {f.id for f in valid} == {created.id}
+        invalid = await repo.get_invalid([nfd], library_id=1)
+        assert all(f.id != created.id for f in invalid)
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_update_status(self, repo: Repository):
@@ -155,37 +189,37 @@ class TestMediaFileRepo:
     async def test_create_media_file_parses_phase_from_path(self, repo: Repository):
         media = await repo.create_media_file(library_id=1, path="/media/MIDV-123-UC-4K.mp4")
         assert media.content_type is ContentType.CENSORED
-        assert media.mosaic is Mosaic.UNCENSORED
+        assert media.mosaic is Mosaic.CRACKED
         assert media.has_subtitle is True
         assert media.definition == "4K"
 
         heyzo = await repo.create_media_file(library_id=1, path="/media/HEYZO-1234.mp4")
         assert heyzo.content_type is ContentType.UNCENSORED
-        assert heyzo.mosaic is None
+        assert heyzo.mosaic is Mosaic.UNCENSORED
         assert heyzo.has_subtitle is False
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_update_path_recomputes_phase(self, repo: Repository):
         media = await repo.create_media_file(library_id=1, path="/video/MIDV-123.mp4")
         assert media.id is not None
-        assert media.mosaic is None
+        assert media.mosaic is Mosaic.CENSORED
         updated = await repo.update_media_file(media.id, path="/video/MIDV-123-U.mp4")
         assert updated is not None
-        assert updated.mosaic is Mosaic.UNCENSORED
+        assert updated.mosaic is Mosaic.CRACKED
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_list_media_files_phase_filters(self, repo: Repository):
         await repo.create_media_file(library_id=1, path="/v/MIDV-001-C.mp4")
-        await repo.create_media_file(library_id=1, path="/v/MIDV-002-U.mp4")
+        await repo.create_media_file(library_id=1, path="/v/MIDV-002-无码.mp4")
         await repo.create_media_file(library_id=1, path="/v/HEYZO-1234.mp4")
-        await repo.create_media_file(library_id=1, path="/v/MIDV-003-破解.mp4")
+        await repo.create_media_file(library_id=1, path="/v/MIDV-003-U.mp4")
 
         subs = await repo.list_media_files(has_subtitle=True, limit=None)
         assert {f.path for f in subs} == {"/v/MIDV-001-C.mp4"}
         uncensored = await repo.list_media_files(uncensored=True, limit=None)
-        assert {f.path for f in uncensored} == {"/v/MIDV-002-U.mp4", "/v/HEYZO-1234.mp4"}
+        assert {f.path for f in uncensored} == {"/v/MIDV-002-无码.mp4", "/v/HEYZO-1234.mp4"}
         cracked = await repo.list_media_files(mosaic=Mosaic.CRACKED, limit=None)
-        assert [f.path for f in cracked] == ["/v/MIDV-003-破解.mp4"]
+        assert [f.path for f in cracked] == ["/v/MIDV-003-U.mp4"]
         heyzo = await repo.list_media_files(content_type=ContentType.UNCENSORED, limit=None)
         assert [f.path for f in heyzo] == ["/v/HEYZO-1234.mp4"]
         assert await repo.count_media_files(uncensored=True) == 2
@@ -217,6 +251,22 @@ class TestMediaFileRepo:
         result = await repo.list_media_files(search="other")
         assert len(result) == 1
         assert result[0].path == "/other/ABC-456.mp4"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_list_media_files_empty_ids(self, repo: Repository):
+        await repo.create_media_file(library_id=1, path="/video/A.mp4")
+        assert await repo.list_media_files(ids=[], limit=None) == []
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_list_media_files_ids_chunks(self, repo: Repository, monkeypatch: pytest.MonkeyPatch):
+        """ids 多于 SQL_IN_CHUNK_SIZE 且 limit None 时分批 IN, 并集完整."""
+        from amane.db.repos import media as media_mod
+
+        monkeypatch.setattr(media_mod, "SQL_IN_CHUNK_SIZE", 2)
+        created = [await repo.create_media_file(library_id=1, path=f"/video/{i}.mp4") for i in range(5)]
+        ids = [m.id for m in created if m.id is not None]
+        result = await repo.list_media_files(ids=ids, limit=None)
+        assert {f.path for f in result} == {f"/video/{i}.mp4" for i in range(5)}
 
     @pytest.mark.parametrize(
         "status_filter,search,expected_count",
@@ -321,6 +371,18 @@ class TestMetadataRepo:
         actors = await repo.get_actors_by_names(["河北彩花"])
         assert actors[0].id is not None
         assert await repo.get_actor_aliases(actors[0].id) == ["Mikami Yua", "河北彩伽"]
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_actor_normalizes_overview(self, repo: Repository):
+        """演员简介与影片简介同一处理: HTML 片段与实体在落库时收成纯文本."""
+        await repo.upsert_metadata(number="MIDV-003", actors=["简介 太郎"])
+        actors = await repo.get_actors_by_names(["简介 太郎"])
+        assert actors[0].id is not None
+
+        updated = await repo.update_actor(actors[0].id, overview="前戏<br>高潮 &amp; 尾声")
+
+        assert updated is not None
+        assert updated.overview == "前戏\n高潮 & 尾声"
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_update_metadata_cleans_actor_alias_names(self, repo: Repository):
@@ -605,7 +667,7 @@ class TestMetadataRepo:
         assert sub.id and u_file.id and heyzo.id and plain.id
 
         m_sub = await repo.create_media_file(library_id=1, path="/v/MIDV-001-C.mp4")
-        m_u = await repo.create_media_file(library_id=1, path="/v/MIDV-002-U.mp4")
+        m_u = await repo.create_media_file(library_id=1, path="/v/MIDV-002-无码.mp4")
         m_h = await repo.create_media_file(library_id=1, path="/v/HEYZO-1234.mp4")
         m_p = await repo.create_media_file(library_id=1, path="/v/MIDV-003.mp4")
         assert m_sub.id and m_u.id and m_h.id and m_p.id
@@ -641,6 +703,17 @@ class TestMetadataRepo:
         assert updated is not None
         assert updated.title == "New Title"
         assert updated.plot == "A plot"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_plot_plain_text_on_write(self, repo: Repository):
+        """长文本入库归一: upsert (刮削) 与 update_metadata (PATCH / merge) 两条写路径都覆盖."""
+        meta = await repo.upsert_metadata(number="ABC-002", plot="前戏<br>高潮 &amp; 尾声")
+        assert meta.plot == "前戏\n高潮 & 尾声"
+        assert meta.id is not None
+
+        updated = await repo.update_metadata(meta.id, plot="改<br>写")
+        assert updated is not None
+        assert updated.plot == "改\n写"
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_update_metadata_not_found(self, repo: Repository):
@@ -721,6 +794,451 @@ class TestMetadataRepo:
     async def test_get_media_by_metadata_id_empty(self, repo: Repository):
         result = await repo.get_media_by_metadata_id(9999)
         assert result == []
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_upsert_skips_locked_fields_and_updates_raw(self, repo: Repository):
+        meta = await repo.upsert_metadata(
+            number="LOCK-001",
+            title="Old",
+            actors=["A"],
+            poster_urls=["https://old/p.jpg"],
+            field_sources={"title": "javdb"},
+            raw={"javdb": {"title": "Old"}},
+        )
+        assert meta.id is not None
+        await repo.set_metadata_locks(meta.id, [MetadataField.TITLE, MetadataField.POSTER_URLS])
+
+        updated = await repo.upsert_metadata(
+            number="LOCK-001",
+            title="New",
+            actors=["B"],
+            poster_urls=["https://new/p.jpg"],
+            field_sources={"title": "dmm", "actors": "dmm"},
+            raw={"dmm": {"title": "New"}},
+        )
+
+        assert updated.title == "Old"
+        assert updated.poster_urls == ["https://old/p.jpg"]
+        assert updated.actors == ["B"]
+        # 锁定字段来源保留, 未锁定字段正常写入.
+        assert updated.field_sources == {"title": "javdb", "actors": "dmm"}
+        assert updated.raw == {"dmm": {"title": "New"}}
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_upsert_tolerates_unknown_locked_value(self, repo: Repository):
+        meta = await repo.upsert_metadata(number="LOCK-002", title="Old")
+        assert meta.id is not None
+        async with repo._session() as session:
+            row = await session.get(Metadata, meta.id)
+            assert row is not None
+            row.locked_fields = ["not-a-field", "title"]
+            session.add(row)
+            await session.commit()
+
+        updated = await repo.upsert_metadata(number="LOCK-002", title="New")
+
+        assert updated.title == "Old"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_auto_mode_respects_locks(self, repo: Repository):
+        meta = await repo.upsert_metadata(number="LOCK-003", title="Old")
+        assert meta.id is not None
+        await repo.set_metadata_locks(meta.id, [MetadataField.TITLE])
+
+        updated = await repo.update_metadata(meta.id, title="New", plot="P")
+
+        assert updated is not None
+        assert updated.title == "Old"
+        assert updated.plot == "P"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_manual_ignores_lock_and_auto_locks_written_fields(self, repo: Repository):
+        meta = await repo.upsert_metadata(number="LOCK-004", title="Old")
+        assert meta.id is not None
+        await repo.set_metadata_locks(meta.id, [MetadataField.ACTORS])
+
+        updated = await repo.update_metadata(
+            meta.id, mode=WriteMode.MANUAL, title="New", poster_urls=["https://p/1.jpg"]
+        )
+
+        assert updated is not None
+        assert updated.title == "New"
+        assert set(updated.locked_fields) == {"actors", "title", "poster_urls"}
+
+    @pytest.mark.parametrize(
+        ("updates", "expected_lock"),
+        [
+            ({"title": "X"}, "title"),
+            ({"scores": {"javdb": 4.5}}, "score"),
+            ({"extrafanart_urls": {"javdb": ["https://f/1.jpg"]}}, "extrafanart"),
+        ],
+    )
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_manual_auto_lock_maps_column_names(self, repo: Repository, updates: dict, expected_lock: str):
+        meta = await repo.upsert_metadata(number="LOCK-005")
+        assert meta.id is not None
+
+        updated = await repo.update_metadata(meta.id, mode=WriteMode.MANUAL, **updates)
+
+        assert updated is not None
+        assert updated.locked_fields == [expected_lock]
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_manual_does_not_lock_provenance_fields(self, repo: Repository):
+        meta = await repo.upsert_metadata(number="LOCK-006")
+        assert meta.id is not None
+
+        updated = await repo.update_metadata(
+            meta.id,
+            mode=WriteMode.MANUAL,
+            field_sources={"title": "javdb"},
+            raw={"javdb": {"title": "X"}},
+        )
+
+        assert updated is not None
+        assert updated.locked_fields == []
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_set_metadata_locks_replaces_and_orders(self, repo: Repository):
+        meta = await repo.upsert_metadata(number="LOCK-007", title="X")
+        assert meta.id is not None
+
+        locked = await repo.set_metadata_locks(meta.id, [MetadataField.SCORE, MetadataField.TITLE])
+        assert locked is not None
+        assert locked.locked_fields == ["title", "score"]
+        assert locked.updated_at == meta.updated_at
+
+        cleared = await repo.set_metadata_locks(meta.id, [])
+        assert cleared is not None
+        assert cleared.locked_fields == []
+
+        assert await repo.set_metadata_locks(9999, [MetadataField.TITLE]) is None
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_upsert_preserves_locked_source_when_incoming_empty(self, repo: Repository):
+        """本次来源为空也要保留锁定字段的既有来源, 未锁定字段的来源照常清空."""
+        meta = await repo.upsert_metadata(
+            number="LOCK-010", title="Old", field_sources={"title": "javdb", "actors": "javdb"}
+        )
+        assert meta.id is not None
+        await repo.set_metadata_locks(meta.id, [MetadataField.TITLE])
+
+        updated = await repo.upsert_metadata(number="LOCK-010", title=None, actors=["New"], field_sources={})
+
+        assert updated.title == "Old"
+        assert updated.actors == ["New"]
+        assert updated.field_sources == {"title": "javdb"}
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_auto_preserves_locked_source_when_incoming_empty(self, repo: Repository):
+        meta = await repo.upsert_metadata(number="LOCK-011", title="Old", field_sources={"title": "javdb"})
+        assert meta.id is not None
+        await repo.set_metadata_locks(meta.id, [MetadataField.TITLE])
+
+        updated = await repo.update_metadata(meta.id, title=None, field_sources={})
+
+        assert updated is not None
+        assert updated.title == "Old"
+        assert updated.field_sources == {"title": "javdb"}
+
+    @pytest.mark.parametrize(
+        ("field", "original_kwargs", "incoming_kwargs"),
+        [
+            (MetadataField.ACTORS, {"actors": ["A"]}, {"actors": ["B"]}),
+            (MetadataField.TAGS, {"tags": ["t1"]}, {"tags": ["t2"]}),
+            (
+                MetadataField.EXTRAFANART,
+                {"extrafanart_urls": {"javdb": ["https://f/1.jpg"]}},
+                {"extrafanart_urls": {"dmm": ["https://f/2.jpg"]}},
+            ),
+            (MetadataField.SCORE, {"scores": {"javdb": 4.0}}, {"scores": {"dmm": 5.0}}),
+        ],
+    )
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_upsert_keeps_locked_value_by_column_shape(
+        self,
+        repo: Repository,
+        field: MetadataField,
+        original_kwargs: dict[str, object],
+        incoming_kwargs: dict[str, object],
+    ):
+        await repo.upsert_metadata(number="LOCK-012", **cast("MetadataFields", original_kwargs))
+        meta = await repo.get_metadata_by_number("LOCK-012")
+        assert meta is not None and meta.id is not None
+        await repo.set_metadata_locks(meta.id, [field])
+
+        incoming = cast("MetadataFields", {**incoming_kwargs, "plot": "unlocked-update"})
+        updated = await repo.upsert_metadata(number="LOCK-012", **incoming)
+
+        (column,) = original_kwargs
+        assert getattr(updated, column) == original_kwargs[column]
+        assert updated.plot == "unlocked-update"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_locked_actors_still_filtered_by_block_rule(self, repo: Repository):
+        """锁拦截自动刮削取值; 写入路径内的 block 规则仍作用于锁定 actors."""
+        meta = await repo.upsert_metadata(number="LOCK-013", actors=["Blocked", "Keep"])
+        assert meta.id is not None
+        await repo.set_metadata_locks(meta.id, [MetadataField.ACTORS])
+        actors = await repo.get_actors_by_names(["Blocked"])
+        assert actors[0].id is not None
+        await repo.delete_facet(FacetKind.ACTOR, actors[0].id)
+
+        # 绕过 delete 的剔除写回被 block 的名字, 归一路径必须仍剔除.
+        async with repo._session() as session:
+            row = await session.get(Metadata, meta.id)
+            assert row is not None
+            row.actors = ["Blocked", "Keep"]
+            session.add(row)
+            await session.commit()
+
+        updated = await repo.upsert_metadata(number="LOCK-013", actors=["New"])
+
+        assert updated.actors == ["Keep"]
+
+
+class TestActorLocks:
+    """Actor 人物字段锁定: AUTO 跳过锁定列, MANUAL 自动并入, 清空 / 合并的锁语义."""
+
+    @staticmethod
+    async def _actor(repo: Repository, name: str) -> Actor:
+        await repo.upsert_metadata(number=f"AL-{name}", actors=[name])
+        actor = (await repo.get_actors_by_names([name]))[0]
+        assert actor.id is not None
+        return actor
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_save_actor_skips_locked_fields_and_keeps_sources(self, repo: Repository):
+        actor = await self._actor(repo, "Locked")
+        actor.birthday = "1990-01-01"
+        actor.image_urls = ["https://old/a.jpg"]
+        actor.field_sources = {"birthday": "minnano"}
+        actor.raw = {"minnano": {"birthday": "1990-01-01"}}
+        await repo.save_actor(actor)
+        assert actor.id is not None
+        await repo.set_actor_locks(actor.id, [ActorField.BIRTHDAY, ActorField.IMAGE_URLS])
+
+        actor.birthday = "2000-01-01"
+        actor.height = 160
+        actor.image_urls = ["https://old/a.jpg", "https://new/b.jpg"]
+        actor.field_sources = {"birthday": "dmm", "height": "dmm"}
+        actor.raw = {"dmm": {"birthday": "2000-01-01"}}
+        saved = await repo.save_actor(actor)
+
+        assert saved is not None
+        assert saved.birthday == "1990-01-01"
+        assert saved.image_urls == ["https://old/a.jpg"]
+        assert saved.height == 160
+        # 锁定字段来源保留, 未锁定字段正常写入; raw 始终更新.
+        assert saved.field_sources == {"birthday": "minnano", "height": "dmm"}
+        assert saved.raw == {"dmm": {"birthday": "2000-01-01"}}
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_save_actor_locked_empty_field_not_filled(self, repo: Repository):
+        actor = await self._actor(repo, "KeepEmpty")
+        assert actor.id is not None
+        await repo.set_actor_locks(actor.id, [ActorField.BIRTHDAY])
+
+        actor.birthday = "2000-01-01"
+        actor.field_sources = {"birthday": "dmm"}
+        saved = await repo.save_actor(actor)
+
+        assert saved is not None
+        assert saved.birthday is None
+        assert saved.field_sources == {}
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_save_actor_tolerates_unknown_locked_value(self, repo: Repository):
+        actor = await self._actor(repo, "BadLock")
+        actor.birthday = "1990-01-01"
+        await repo.save_actor(actor)
+        assert actor.id is not None
+        async with repo._session() as session:
+            row = await session.get(Actor, actor.id)
+            assert row is not None
+            row.locked_fields = ["not-a-field", "birthday"]
+            session.add(row)
+            await session.commit()
+
+        actor.birthday = "2000-01-01"
+        saved = await repo.save_actor(actor)
+
+        assert saved is not None
+        assert saved.birthday == "1990-01-01"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_actor_auto_mode_respects_locks(self, repo: Repository):
+        actor = await self._actor(repo, "AutoMode")
+        actor.birthday = "1990-01-01"
+        await repo.save_actor(actor)
+        assert actor.id is not None
+        await repo.set_actor_locks(actor.id, [ActorField.BIRTHDAY])
+
+        updated = await repo.update_actor(actor.id, birthday="2000-01-01", height=160)
+
+        assert updated is not None
+        assert updated.birthday == "1990-01-01"
+        assert updated.height == 160
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_actor_auto_preserves_locked_source(self, repo: Repository):
+        actor = await self._actor(repo, "AutoSource")
+        actor.birthday = "1990-01-01"
+        actor.field_sources = {"birthday": "minnano"}
+        await repo.save_actor(actor)
+        assert actor.id is not None
+        await repo.set_actor_locks(actor.id, [ActorField.BIRTHDAY])
+
+        updated = await repo.update_actor(actor.id, birthday=None, field_sources={"birthday": "dmm", "height": "dmm"})
+
+        assert updated is not None
+        assert updated.birthday == "1990-01-01"
+        assert updated.field_sources == {"birthday": "minnano", "height": "dmm"}
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_actor_manual_ignores_lock_and_auto_locks_written_fields(self, repo: Repository):
+        actor = await self._actor(repo, "ManualMode")
+        assert actor.id is not None
+        await repo.set_actor_locks(actor.id, [ActorField.BIRTHDAY])
+
+        updated = await repo.update_actor(
+            actor.id, mode=WriteMode.MANUAL, birthday="2000-01-01", image_urls=["https://a/b.jpg"]
+        )
+
+        assert updated is not None
+        assert updated.birthday == "2000-01-01"
+        assert set(updated.locked_fields) == {"birthday", "image_urls"}
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_actor_manual_null_stays_locked(self, repo: Repository):
+        actor = await self._actor(repo, "ClearOne")
+        actor.birthday = "1990-01-01"
+        await repo.save_actor(actor)
+        assert actor.id is not None
+
+        cleared = await repo.update_actor(actor.id, mode=WriteMode.MANUAL, birthday=None)
+        assert cleared is not None
+        assert cleared.birthday is None
+        assert cleared.locked_fields == ["birthday"]
+
+        # 显式清空后 AUTO 不再填回.
+        filled = await repo.update_actor(actor.id, birthday="2000-01-01")
+        assert filled is not None
+        assert filled.birthday is None
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_update_actor_manual_does_not_lock_provenance_fields(self, repo: Repository):
+        actor = await self._actor(repo, "Provenance")
+        assert actor.id is not None
+
+        updated = await repo.update_actor(
+            actor.id,
+            mode=WriteMode.MANUAL,
+            aliases=["Alias"],
+            provider_ids={"theporndb": "1"},
+            source_urls={"minnano": "https://m/a"},
+            field_sources={"birthday": "minnano"},
+            raw={"minnano": {"birthday": "x"}},
+        )
+
+        assert updated is not None
+        assert updated.locked_fields == []
+        assert await repo.get_actor_aliases(actor.id) == ["Alias"]
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_set_actor_locks_replaces_and_orders(self, repo: Repository):
+        actor = await self._actor(repo, "Ordered")
+        assert actor.id is not None
+
+        locked = await repo.set_actor_locks(actor.id, [ActorField.IMAGE_URLS, ActorField.GENDER])
+        assert locked is not None
+        assert locked.locked_fields == ["gender", "image_urls"]  # 枚举声明序
+        assert locked.updated_at == actor.updated_at
+
+        cleared = await repo.set_actor_locks(actor.id, [])
+        assert cleared is not None
+        assert cleared.locked_fields == []
+
+        assert await repo.set_actor_locks(9999, [ActorField.GENDER]) is None
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_clear_actor_person_resets_fields_sources_and_locks(self, repo: Repository):
+        actor = await self._actor(repo, "ToClear")
+        actor.gender = ActorGender.FEMALE
+        actor.birthday = "1990-01-01"
+        actor.height = 160
+        actor.image_urls = ["https://a/b.jpg"]
+        actor.provider_ids = {"theporndb": "1"}
+        actor.source_urls = {"minnano": "https://m/a"}
+        actor.field_sources = {"birthday": "minnano"}
+        actor.raw = {"minnano": {"birthday": "1990-01-01"}}
+        await repo.save_actor(actor, aliases=["OldAlias"])
+        assert actor.id is not None
+        await repo.set_actor_locks(actor.id, [ActorField.BIRTHDAY])
+
+        cleared = await repo.clear_actor_person(actor.id)
+
+        assert cleared is not None
+        assert cleared.name == "ToClear"
+        assert cleared.gender == ActorGender.FEMALE  # 性别保留 (刮削路由)
+        assert cleared.birthday is None
+        assert cleared.height is None
+        assert cleared.image_urls == []
+        assert cleared.provider_ids == {}
+        assert cleared.source_urls == {}
+        assert cleared.field_sources == {}
+        assert cleared.locked_fields == []
+        assert cleared.raw == {"minnano": {"birthday": "1990-01-01"}}  # 刮削缓存保留
+        assert await repo.get_actor_aliases(actor.id) == []
+        assert await repo.clear_actor_person(9999) is None
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_merge_actor_carries_source_locks(self, repo: Repository):
+        target = await self._actor(repo, "MergeTarget")
+        source = await self._actor(repo, "MergeSource")
+        assert target.id is not None and source.id is not None
+        await repo.set_actor_locks(target.id, [ActorField.IMAGE_URLS])
+        await repo.set_actor_locks(source.id, [ActorField.BIRTHDAY])
+
+        item = await repo.merge_facets(FacetKind.ACTOR, target.id, [source.id])
+
+        assert item is not None
+        merged = await repo.get_actor(target.id)
+        assert merged is not None
+        assert merged.locked_fields == ["birthday", "image_urls"]
+
+        # 源锁定的空 birthday 合并后仍受保护, AUTO 不填回.
+        merged.birthday = "2000-01-01"
+        saved = await repo.save_actor(merged)
+        assert saved is not None
+        assert saved.birthday is None
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_clean_actor_names_skips_locked_gender(self, repo: Repository):
+        locked = await self._actor(repo, "GenderLocked")
+        assert locked.id is not None
+        locked_id = locked.id
+        await repo.set_actor_locks(locked_id, [ActorField.GENDER])
+
+        await repo.upsert_metadata(
+            number="AL-gender-1",
+            actors=["GenderLocked", "GenderFree"],
+            actor_genders={"GenderLocked": ActorGender.FEMALE, "GenderFree": ActorGender.FEMALE},
+        )
+
+        refetched = await repo.get_actor(locked_id)
+        assert refetched is not None
+        assert refetched.gender == ActorGender.UNKNOWN
+        free = (await repo.get_actors_by_names(["GenderFree"]))[0]
+        assert free.gender == ActorGender.FEMALE
+
+    def test_actor_field_matches_person_surface(self) -> None:
+        """ActorField 必须覆盖人物可写字段全集; 漏加成员会静默不可锁或运行期属性错误."""
+        identity = {"id", "name", "created_at", "updated_at", "locked_fields"}
+        non_person = {"aliases", "provider_ids", "source_urls", "field_sources", "raw"}
+        assert set(ActorField) == set(Actor.model_fields) - identity - non_person
+        assert set(ActorField) == set(get_type_hints(ActorPersonFields)) - non_person
+        assert set(ActorField) == set(AggregatedActor.model_fields) - non_person
 
 
 class TestTaskRepo:
@@ -853,9 +1371,10 @@ class TestTaskRepo:
     @pytest.mark.parametrize(
         ("task_type", "first", "second", "same"),
         [
-            (TaskType.ORGANIZE, {"library_id": 1}, {"library_id": 1}, True),
-            (TaskType.ORGANIZE, {"library_id": 1}, {"library_id": 1, "write_nfo": False}, True),
+            (TaskType.ORGANIZE, {"library_id": 1}, {"library_id": 1}, False),
+            (TaskType.ORGANIZE, {"library_id": 1}, {"library_id": 1, "write_nfo": False}, False),
             (TaskType.ORGANIZE, {"library_id": 1}, {"library_id": 2}, False),
+            (TaskType.DELETE, {"library_id": 1}, {"library_id": 1}, False),
             (TaskType.ACTOR_SCRAPE, {"actor_id": 3}, {"actor_id": 3}, True),
             (TaskType.ACTOR_SCRAPE, {"actor_id": 3}, {"actor_id": 3, "use_cache": []}, True),
             (TaskType.ACTOR_SCRAPE, {"actor_id": 3}, {"actor_id": 4}, False),
@@ -893,12 +1412,12 @@ class TestTaskRepo:
         assert second.id != first.id
 
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_create_task_reuses_running(self, repo: Repository):
+    async def test_create_task_does_not_reuse_running_organize(self, repo: Repository):
         first = await repo.create_task(task_type=TaskType.ORGANIZE, payload={"library_id": 1})
         claimed = await repo.claim_next_task()
         assert claimed is not None and claimed.id == first.id
         second = await repo.create_task(task_type=TaskType.ORGANIZE, payload={"library_id": 1})
-        assert second.id == first.id
+        assert second.id != first.id
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_create_task_concurrent_same_library(self, repo: Repository):
@@ -907,8 +1426,8 @@ class TestTaskRepo:
             repo.create_task(task_type=TaskType.ORGANIZE, payload={"library_id": 7}),
         )
         assert first.id is not None and second.id is not None
-        assert first.id == second.id
-        assert await repo.count_tasks(task_types=[TaskType.ORGANIZE]) == 1
+        assert first.id != second.id
+        assert await repo.count_tasks(task_types=[TaskType.ORGANIZE]) == 2
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_complete_followups_concurrent_exclusive(self, repo: Repository):
@@ -934,20 +1453,23 @@ class TestTaskRepo:
         assert await repo.count_tasks(task_types=[TaskType.ACTOR_SCRAPE]) == 1
 
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_create_tasks_batch_reuses_within_session(self, repo: Repository):
+    async def test_create_tasks_batch_does_not_reuse_organize(self, repo: Repository):
         rows = await repo.create_tasks(TaskType.ORGANIZE, [{"library_id": 1}, {"library_id": 1}, {"library_id": 2}])
-        assert rows[0].id == rows[1].id
+        assert rows[0].id != rows[1].id
         assert rows[2].id != rows[0].id
-        assert await repo.count_tasks(task_types=[TaskType.ORGANIZE]) == 2
+        assert await repo.count_tasks(task_types=[TaskType.ORGANIZE]) == 3
 
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_retry_reuses_active_organize(self, repo: Repository):
+    async def test_retry_creates_new_organize_when_active(self, repo: Repository):
         failed = await repo.create_task(task_type=TaskType.ORGANIZE, payload={"library_id": 1})
         assert failed.id is not None
         await repo.fail_task(failed.id, "boom")
         active = await repo.create_task(task_type=TaskType.ORGANIZE, payload={"library_id": 1})
         retried = await repo.retry_tasks([failed])
-        assert [t.id for t in retried] == [active.id]
+        assert len(retried) == 1
+        assert retried[0].id != active.id
+        assert retried[0].id != failed.id
+        assert await repo.count_tasks(task_types=[TaskType.ORGANIZE]) == 3
 
 
 class TestListSorting:
@@ -1014,7 +1536,8 @@ class TestLibraryRepo:
 
         watched = await repo.list_libraries(watch_only=True)
         assert len(watched) == 1
-        assert watched[0].path == "/media/incoming"
+        # 库路径在入口解析为真实路径: 期望值同样按真实路径算, 免得在 Windows 上把盘符相对路径当别名.
+        assert watched[0].path == str(resolved_path("/media/incoming"))
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_delete_library(self, repo: Repository):
@@ -1055,7 +1578,7 @@ class TestLibraryRepo:
 
         fetched = await repo.get_library(lib.id)
         assert fetched is not None
-        assert fetched.path == "/media/test"
+        assert fetched.path == str(resolved_path("/media/test"))
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_get_library_not_found(self, repo: Repository):
@@ -1065,12 +1588,13 @@ class TestLibraryRepo:
     async def test_get_library_for_path(self, repo: Repository):
         await repo.create_library(name="root", path="/media/jav")
         sub = await repo.create_library(name="sub", path="/media/jav/sub")
+        sub_path = Path(resolved_path("/media/jav/sub"))
 
         # 最长前缀匹配
-        matched = await repo.get_library_for_path("/media/jav/sub/a.mp4")
+        matched = await repo.get_library_for_path(str(sub_path / "a.mp4"))
         assert matched is not None and matched.id == sub.id
         # 无匹配
-        assert await repo.get_library_for_path("/orphan/b.mp4") is None
+        assert await repo.get_library_for_path(str(Path(resolved_path("/orphan")) / "b.mp4")) is None
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_update_library(self, repo: Repository):
@@ -1079,7 +1603,7 @@ class TestLibraryRepo:
 
         updated = await repo.update_library(lib.id, path="/media/new", automation=LibraryAutomation.NONE)
         assert updated is not None
-        assert updated.path == "/media/new"
+        assert updated.path == str(resolved_path("/media/new"))
         assert updated.automation == LibraryAutomation.NONE
 
     @pytest.mark.asyncio(loop_scope="function")

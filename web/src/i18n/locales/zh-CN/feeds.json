@@ -6,12 +6,16 @@
   "searchSources": "筛选名称、URL 或分组",
   "newFeed": "添加订阅源",
   "editFeed": "编辑订阅源",
-  "history": "拉取历史",
   "historyEmpty": "暂无拉取记录",
   "historySearchPlaceholder": "搜索标题、番号、正文或链接",
   "historyStates": {
     "active": "未忽略",
     "ignored": "已忽略",
+    "all": "全部"
+  },
+  "historyReadStates": {
+    "unread": "未读",
+    "read": "已读",
     "all": "全部"
   },
   "sidebar": {
@@ -24,6 +28,7 @@
   "reader": {
     "noContent": "没有正文",
     "openLink": "原文",
+    "itemActions": "条目操作",
     "dedupe": "合并相同番号",
     "duplicates": "另 {{count}} 条重复",
     "duplicates_one": "另 {{count}} 条重复",
@@ -33,15 +38,20 @@
     "selectPage": "全选本页",
     "itemCount": "{{count}} 条",
     "itemCount_one": "{{count}} 条",
-    "itemCount_other": "{{count}} 条"
+    "itemCount_other": "{{count}} 条",
+    "shortcutHint": "← → 切换条目",
+    "dateBuckets": {
+      "today": "今天",
+      "yesterday": "昨天"
+    }
   },
   "importOpml": "导入 OPML",
   "importTitle": "从 OPML 导入",
-  "importHint": "读取文件中的 xmlUrl，并把无地址的 outline 当作分组路径。可再加一层公共前缀作为这次导入的顶层目录。按现有添加接口逐条创建，每个源仍会立刻拉取以追赶当前快照。",
+  "importHint": "读取 xmlUrl, 无地址的 outline 作为分组. 可加公共前缀作为顶层目录. 导入后会立刻拉取",
   "importPrefix": "分组前缀",
   "importPrefixPlaceholder": "rsshub",
-  "importPrefixHint": "可选。加在 OPML 目录前面，作为这次导入的顶层分组。",
-  "importAutoEnqueueHint": "默认关闭。打开后，导入的源发现新番号时会自动刮削。",
+  "importPrefixHint": "可选。加在 OPML 目录前面，作为这次导入的顶层分组",
+  "importAutoEnqueueHint": "默认关闭。打开后，导入的源发现新番号时会自动刮削",
   "importEmpty": "文件里没有可导入的订阅源",
   "importInvalid": "无法解析该 OPML 文件",
   "importExisting": "已存在",
@@ -50,33 +60,36 @@
   "importAction_other": "导入 {{count}} 个",
   "importProgress": "正在添加 {{current}} / {{total}}",
   "importResult": "已添加 {{created}} 个，跳过 {{skipped}} 个，失败 {{failed}} 个",
-  "scrapeBatchResult": "已入队 {{submitted}} 个刮削任务，跳过 {{skipped}} 条无番号记录，{{missing}} 个 ID 不存在或不属于对应源",
+  "scrapeBatchResult": "已提交 {{submitted}} 个刮削任务, 跳过 {{skipped}} 条无番号, {{missing}} 条已不存在",
   "fields": {
     "name": "名称",
     "namePlaceholder": "留空则使用订阅源标题",
-    "nameHint": "可选。留空时，首次成功拉取会写入 feed 自带标题。",
+    "nameHint": "可选。留空时，首次成功拉取会写入 feed 自带标题",
     "url": "Feed URL",
     "urlPlaceholder": "https://example.com/rss.xml",
     "group": "分组",
     "groupPlaceholder": "jav/rsshub",
-    "groupHint": "斜杠伪路径，用来在侧栏组成目录。留空则为未分组。",
-    "groupInvalid": "分组不能包含 . 或 .. 路径段。",
+    "groupHint": "用 / 划分目录, 如 jav/rsshub. 留空则不分组",
+    "groupInvalid": "分组不能包含 . 或 ..",
     "interval": "拉取间隔",
-    "intervalHint": "最短 1 分钟，最长 24 小时。",
-    "intervalRange": "间隔必须在 1 分钟到 24 小时之间。",
+    "intervalHint": "最短 1 分钟，最长 24 小时",
+    "intervalRange": "间隔必须在 1 分钟到 24 小时之间",
     "numberPattern": "番号正则",
-    "numberPatternHint": "可选。设置后只使用该正则（有捕获组则取第一组），不再走内置提取。",
+    "numberPatternHint": "覆盖内置番号提取规则. 有捕获组则取第一组",
     "contentType": "内容类型",
-    "contentTypeHint": "媒体内容分类 — 决定爬虫路由。",
+    "contentTypeHint": "",
     "contentTypeAuto": "自动推断",
     "useCache": "使用缓存",
-    "useCacheHint": "勾选的缓存生效；取消勾选则强制刷新该项。",
+    "useCacheHint": "勾选则使用对应缓存, 否则重新抓取",
+    "ignoreKeywords": "过滤关键词",
+    "ignoreKeywordsHint": "每行一个. 标题或番号包含任一关键词则忽略该条目. 历史条目同样生效",
+    "ignoreKeywordsPlaceholder": "合集\n総集編",
     "cacheMetadata": "元数据缓存",
     "cacheTrans": "译文缓存",
     "enabled": "启用",
-    "enabledHint": "关闭后不再定期拉取。立即拉取仍可用。",
-    "autoEnqueue": "自动入队",
-    "autoEnqueueHint": "关闭后仍拉取并记历史，但不自动刮削。可在历史表手动选择。"
+    "enabledHint": "是否自动定期拉取",
+    "autoEnqueue": "自动提交刮削任务",
+    "autoEnqueueHint": ""
   },
   "units": {
     "hours": "小时",
@@ -93,9 +106,6 @@
     "hentai": "动漫"
   },
   "columns": {
-    "title": "标题",
-    "number": "番号",
-    "fetchedAt": "发现时间",
     "name": "名称",
     "url": "URL",
     "group": "分组",
@@ -121,10 +131,6 @@
     "intervalSeconds_one": "{{count}} 秒",
     "intervalSeconds_other": "{{count}} 秒",
     "lastFetch": "上次拉取",
-    "nextFetch": "下次拉取",
-    "enqueued": "入队 {{count}} 条",
-    "enqueued_one": "入队 {{count}} 条",
-    "enqueued_other": "入队 {{count}} 条",
     "never": "从未",
     "noNumber": "未解析到番号",
     "inLibrary": "已在库",
@@ -141,23 +147,31 @@
     "disableSelected": "停用",
     "enableAutoEnqueueSelected": "自动入队",
     "disableAutoEnqueueSelected": "不自动入队",
-    "history": "历史",
     "rescrape": "重新刮削",
     "ignore": "忽略",
-    "unignore": "恢复"
+    "unignore": "恢复",
+    "markRead": "标为已读",
+    "markUnread": "标为未读",
+    "setIgnoreKeywords": "设置过滤关键词"
   },
   "confirm": {
     "deleteTitle": "删除订阅源",
-    "deleteMessage": "确定删除「{{name}}」？拉取历史会一并删除。",
+    "deleteMessage": "确定删除「{{name}}」？拉取历史会一并删除",
     "deleteManyTitle": "删除订阅源",
-    "deleteManyMessage": "确定删除选中的 {{count}} 个订阅源？拉取历史会一并删除。",
+    "deleteManyMessage": "确定删除选中的 {{count}} 个订阅源？拉取历史会一并删除",
     "deleteItemsTitle": "删除历史",
-    "deleteItemsMessage": "确定删除选中的 {{count}} 条历史？删除后，远程源再次返回时会重新视为新条目。",
+    "deleteItemsMessage": "确定删除选中的 {{count}} 条历史？删除后，远程源再次返回时会重新视为新条目",
     "deleteItemTitle": "删除历史",
-    "deleteItemMessage": "确定删除这条历史？远程源再次返回时会重新视为新条目。"
+    "deleteItemMessage": "确定删除这条历史？远程源再次返回时会重新视为新条目"
+  },
+  "keywordDialog": {
+    "title": "设置过滤关键词",
+    "replace": "覆盖已有关键词",
+    "replaceHint": "关闭时追加到各源现有列表; 打开时用上面的列表替换",
+    "apply": "应用到选中源"
   },
   "batchActionResult": "已处理 {{affected}} 条",
-  "batchActionResultWithMissing": "已处理 {{affected}} 条，{{missing}} 条不存在或不属于对应源",
+  "batchActionResultWithMissing": "已处理 {{affected}} 条, {{missing}} 条已不存在",
   "batchSourceResult": "已处理 {{ok}} 个",
   "batchSourceResultWithFailed": "已处理 {{ok}} 个，失败 {{failed}} 个"
 }

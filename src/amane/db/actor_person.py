@@ -1,15 +1,13 @@
-"""Actor 人物字段读写与实体 merge 辅助.
-
-别名不在此层: 以 ``ActorAlias`` 行存储, 读写走 ``repos/facet_helpers`` 的行写入函数
-(``add_actor_aliases`` / ``replace_actor_aliases`` / ``move_actor_alias_rows``).
-"""
+"""人物字段读写与实体 merge. 别名不在此层, 由 ``repos.facet_helpers`` 的行写入函数处理."""
 
 from ..aggregate.actor import AggregatedActor, merge_actor_rows_fill_empty
+from ..enums import ActorField
+from ..utils.text import normalize_long_text
 from .models import Actor
 
 
 def actor_to_aggregated(actor: Actor) -> AggregatedActor:
-    """DB Actor 行 → AggregatedActor (merge / 回写共用); 不含别名 (见模块说明)."""
+    """不含别名."""
     return AggregatedActor(
         gender=actor.gender,
         birthday=actor.birthday,
@@ -30,7 +28,7 @@ def actor_to_aggregated(actor: Actor) -> AggregatedActor:
 
 
 def apply_aggregated_to_actor(actor: Actor, data: AggregatedActor) -> None:
-    """将聚合结果写回 Actor 行 (不改 name/id); 别名由调用方经别名行写入."""
+    """不修改 name/id; 别名由调用方经别名行写入."""
     actor.gender = data.gender
     actor.birthday = data.birthday
     actor.birthplace = data.birthplace
@@ -39,7 +37,7 @@ def apply_aggregated_to_actor(actor: Actor, data: AggregatedActor) -> None:
     actor.waist = data.waist
     actor.hip = data.hip
     actor.cup = data.cup
-    actor.overview = data.overview
+    actor.overview = normalize_long_text(data.overview)
     actor.tagline = data.tagline
     actor.image_urls = list(data.image_urls)
     actor.provider_ids = dict(data.provider_ids)
@@ -48,10 +46,42 @@ def apply_aggregated_to_actor(actor: Actor, data: AggregatedActor) -> None:
     actor.raw = dict(data.raw)
 
 
+def locked_fields_of(actor: Actor) -> set[ActorField]:
+    """人物锁集合; 非法存量值忽略."""
+    locked: set[ActorField] = set()
+    for name in actor.locked_fields or []:
+        try:
+            locked.add(ActorField(name))
+        except ValueError:
+            continue
+    return locked
+
+
+def filter_locked_person_data(
+    data: AggregatedActor, *, locked: set[ActorField], current: AggregatedActor
+) -> AggregatedActor:
+    """AUTO 写入: 锁定字段保留 ``current`` 的值与来源, 其余取 ``data``."""
+    if not locked:
+        return data
+    merged = data.model_copy(deep=True)
+    for field in locked:
+        setattr(merged, field, getattr(current, field))
+    merged.field_sources = {
+        **{key: value for key, value in current.field_sources.items() if key in locked},
+        **{key: value for key, value in data.field_sources.items() if key not in locked},
+    }
+    return merged
+
+
 def merge_person_fields_into_target(target: Actor, sources: list[Actor]) -> None:
-    """实体 merge: 源人物字段填空并入 target (删源前调用); 别名并行走
-    ``move_actor_alias_rows``, 不在此层."""
+    """源人物字段填空并入 target (须在删源前调用). 别名并入由 ``move_actor_alias_rows`` 处理.
+    源的锁集并入 target, 使被保护的值/空位在合并后仍受保护.
+    """
     merged = actor_to_aggregated(target)
     for src in sources:
         merged = merge_actor_rows_fill_empty(merged, actor_to_aggregated(src))
     apply_aggregated_to_actor(target, merged)
+    locked = locked_fields_of(target)
+    for src in sources:
+        locked |= locked_fields_of(src)
+    target.locked_fields = [str(field) for field in ActorField if field in locked]

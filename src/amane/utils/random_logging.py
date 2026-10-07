@@ -1,9 +1,4 @@
-"""
-开发调试用结构化日志发射器.
-
-启用方式: AMANE_TEST_LOG=1 (在 .env.dev 中已配置)
-以随机间隔发射多种级别 + 真实载荷的日志, 用于前端日志页面开发.
-"""
+"""AMANE_TEST_LOG=1 时以随机间隔发射结构化日志, 供前端日志页开发."""
 
 import asyncio
 import random
@@ -29,7 +24,6 @@ _EVENTS: list[tuple[str, str, dict]] = [
 
 
 async def run_random_logging() -> None:
-    """以随机间隔发射结构化日志条目, 直到被取消."""
     log = logger.bind(component="random_logging")
     log.info("random log emitter started")
 
@@ -38,7 +32,6 @@ async def run_random_logging() -> None:
             await asyncio.sleep(random.uniform(0.1, 0.7))
             level, event, payload_template = random.choice(_EVENTS)
 
-            # 填充动态值
             payload: dict = {}
             for k, v in payload_template.items():
                 payload[k] = _random_value(k) if v is None else v
@@ -50,7 +43,6 @@ async def run_random_logging() -> None:
 
 
 def _random_value(key: str) -> str | int | float:
-    """基于字段名生成合理的随机值."""
     if "task_id" in key or "schedule_id" in key:
         return random.randint(100, 9999)
     if "duration" in key or "wait" in key or "age" in key:

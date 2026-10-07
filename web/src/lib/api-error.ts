@@ -18,7 +18,7 @@ function isValidationArray(v: unknown): v is ValidationError[] {
 
 /**
  * 从抛出的错误提取人类可读消息.
- * @param fallback 无法解析时的兜底文案.
+ * @param fallback 无法解析时的默认文案.
  */
 export function extractErrorMessage(error: unknown, fallback: string): string {
   if (typeof error === "string" && error.trim()) return error;

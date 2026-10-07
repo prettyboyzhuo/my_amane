@@ -1,14 +1,4 @@
-import {
-  ActionIcon,
-  Badge,
-  Button,
-  Group,
-  Modal,
-  Text,
-  TextInput,
-  Title,
-  Tooltip,
-} from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Modal, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconFilter, IconPlus, IconSearch, IconX } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,6 +15,7 @@ import {
 } from "@/client/@tanstack/react-query.gen";
 import type { FeedResponse } from "@/client/types.gen";
 import { BrowsePageShell } from "@/components/common/browse-page-shell";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { PageSizeSelect } from "@/components/common/page-size-select";
 import {
   emptyFeedForm,
@@ -37,6 +28,7 @@ import {
 import { FeedSourceFilterControls } from "@/components/feeds/feed-source-filters";
 import { FeedSourcesTable } from "@/components/feeds/feed-sources-table";
 import { OpmlImportButton } from "@/components/feeds/opml-import";
+import { useNarrowViewport } from "@/hooks/use-narrow-viewport";
 import { useResettingState } from "@/hooks/use-resetting-state";
 import { extractErrorMessage } from "@/lib/api-error";
 import { SORT_ORDERS } from "@/lib/exhaustive-maps";
@@ -111,6 +103,7 @@ function FeedSourcesPage() {
   };
   const hasFilters = hasActiveFeedSourceFilters(filters);
   const [advancedOpen, setAdvancedOpen] = useState(hasFilters);
+  const narrowViewport = useNarrowViewport("md");
 
   const filtered = useMemo(() => {
     const matched = filterFeedSources(feeds, search.q ?? "", {
@@ -255,29 +248,31 @@ function FeedSourcesPage() {
           />
         }
         extras={
-          <Tooltip label={t("filter.title")}>
-            <ActionIcon
+          /* 窄屏的筛选在底部面板里常驻展开, 该开关只在宽屏有意义. */
+          narrowViewport ? null : (
+            <HintedActionIcon
               variant={advancedOpen || hasFilters ? "filled" : "default"}
               size={36}
               onClick={() => setAdvancedOpen((open) => !open)}
-              aria-label={t("filter.title")}
+              label={t("filter.title")}
             >
               <IconFilter size={16} />
-            </ActionIcon>
-          </Tooltip>
+            </HintedActionIcon>
+          )
         }
         pageSize={
           <PageSizeSelect sizeKey="feedSources" onChanged={() => patchSearch({ page: 1 })} />
         }
+        filterPanel={
+          <FeedSourceFilterControls
+            opened={narrowViewport || advancedOpen}
+            values={filters}
+            onChange={(next) =>
+              patchSearch({ enabled: next.enabled, auto_enqueue: next.auto_enqueue, page: 1 })
+            }
+          />
+        }
       >
-        <FeedSourceFilterControls
-          opened={advancedOpen}
-          values={filters}
-          onChange={(next) =>
-            patchSearch({ enabled: next.enabled, auto_enqueue: next.auto_enqueue, page: 1 })
-          }
-        />
-
         {hasFilters && (
           <Group gap="xs">
             {filters.enabled != null && (

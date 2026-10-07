@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 from pydantic import AfterValidator
 
-from ..enums import LinkMode
+from ..enums import ActorGender, LinkMode
 from ..parsing.file_info import FileInfo
 from ..utils.path import is_descendant
 from .template import PLACEHOLDER_MAP_KEYS as PLACEHOLDER_MAP_KEYS
@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 
 @dataclass
 class ResolvedPaths:
-    """渲染后的所有输出路径 (完整路径含扩展名)."""
-
     video: Path
     thumb: Path
     poster: Path
@@ -37,7 +35,8 @@ THUMB_TEMPLATE_DEFAULT = "{link_dir}/thumb.jpg"
 POSTER_TEMPLATE_DEFAULT = "{link_dir}/poster.jpg"
 FANART_TEMPLATE_DEFAULT = "{link_dir}/fanart.jpg"
 EXTRAFANART_TEMPLATE_DEFAULT = "{link_dir}/extrafanart"
-NFO_TEMPLATE_DEFAULT = "{link_dir}/{number}.nfo"
+# 媒体服务器按视频文件名匹配 NFO, 所以默认跟随 {video_name} (含 CD / 中字段).
+NFO_TEMPLATE_DEFAULT = "{link_dir}/{video_name}.nfo"
 TRAILER_TEMPLATE_DEFAULT = "{link_dir}/trailer.mp4"
 SUBTITLE_TEMPLATE_DEFAULT = "{link_dir}/{raw_srt_name}.{ext}"
 
@@ -51,7 +50,7 @@ def normalize_link_template(value: str | None) -> str | None:
 
 
 def validate_path_template(value: str) -> str:
-    """校验路径模板结构 (括号 / 占位符 / 值映射). 空串合法."""
+    """空串合法."""
     Parser(value).parse()
     return value
 
@@ -60,7 +59,6 @@ PathTemplate = Annotated[str, AfterValidator(validate_path_template)]
 
 
 def render_path_template(template: str, variables: dict[str, str]) -> str:
-    """渲染占位符与可选组, 并折叠空路径段."""
     return PathEngine(template).render(TemplateContext.from_mapping(variables))
 
 
@@ -72,28 +70,20 @@ def resolve_paths(
     source_path: Path | None = None,
     file_info: FileInfo | None = None,
     safe_dirs: Sequence[Path] | None = (),
+    actor_genders: Mapping[str, ActorGender] | None = None,
 ) -> ResolvedPaths:
-    """根据 Library 模板配置和元数据渲染所有输出路径.
-
-    Args:
-        library: 媒体库配置 (含模板字段)
-        metadata: 元数据对象 (需有 number, title, actors, studio 等属性)
-        ext: 原始文件扩展名 (不含点, 如 "mp4", "mkv")
-        cd: CD/分片编号; None 时回退 file_info.cd. 写入 ``{cd?}``, 由模板可选组决定是否出现在路径中.
-        source_path: 源文件完整路径, 提供 {raw_dir} (源父目录名) 与 {raw_name} (源文件名不含扩展名)
-        file_info: 源文件解析结果 (parse_file_info), 提供 {mosaic?} / {def?} / {sub?} / {cd?}
-        safe_dirs: 允许绝对路径模板落地的可信目录集 (多盘分存等). base_path 始终可信, 无需重复列出.
-            ``None`` 表示不限制绝对模板落点 (相对模板仍须在 base_path 下).
-
-    Returns:
-        ResolvedPaths 包含视频与刮削产物路径 (字幕按源文件逐条渲染, 见 resolve_subtitle_path).
-
-    Raises:
-        ValueError: 任一模板渲染后逃逸了 base_path 与 safe_dirs 构成的边界
-    """
+    """``safe_dirs is None`` 时不限制绝对模板写出的路径; 相对模板仍须在 base_path 下."""
     base_path = Path(library.path)
-    ctx = TemplateContext.from_metadata(metadata, ext=ext, source_path=source_path, file_info=file_info, cd=cd)
+    ctx = TemplateContext.from_metadata(
+        metadata,
+        ext=ext,
+        source_path=source_path,
+        file_info=file_info,
+        cd=cd,
+        actor_genders=actor_genders,
+    )
 
+    # 先渲染视频, 注入 `{video_*}` 后再渲染链接与刮削产物.
     video = PathEngine(library.video_template).resolve(ctx, base_path, safe_dirs)
     ctx.apply_video(video, base_path)
     link = _resolve_link_path(library, ctx, base_path, safe_dirs)
@@ -126,10 +116,7 @@ def _resolve_link_path(
     base_path: Path,
     safe_dirs: Sequence[Path] | None,
 ) -> Path | None:
-    """渲染 link_template; 空模板返回 None. 结果必须落在库根之外.
-
-    此时 `{video_dir}` / `{video_name}` / `{video_relpath}` 已注入, `{link_dir}` / `{link_name}` 尚未注入.
-    """
+    """结果必须在库外. 此时 `{video_dir}` / `{video_name}` / `{video_relpath}` 已注入, `{link_dir}` / `{link_name}` 尚未注入."""
     template = normalize_link_template(library.link_template)
     if template is None:
         return None
@@ -154,17 +141,18 @@ def resolve_subtitle_path(
     source_path: Path | None = None,
     file_info: FileInfo | None = None,
     safe_dirs: Sequence[Path] | None = (),
+    actor_genders: Mapping[str, ActorGender] | None = None,
 ) -> Path:
-    """按字幕模板渲染单个字幕的目标路径.
-
-    `{ext}` / `{raw_srt_name}` 取自该字幕源文件; `{raw_name}` / `{raw_dir}` 仍是视频源.
+    """`{ext}` / `{raw_srt_name}` 取自该字幕源文件; `{raw_name}` / `{raw_dir}` 仍是视频源.
     `{video_dir}` / `{video_name}` 为整理后视频父目录与文件名 (不含扩展名);
-    `{video_relpath}` 为整理后视频相对库根的路径 (`video_dest` 未传时为空);
-    `{link_dir}` / `{link_name}` 为链接父目录与文件名 (未设链接时分别与视频侧相同).
+    `{video_relpath}` 为整理后视频相对库根目录的路径 (`video_dest` 未传时为空);
+    `{link_dir}` / `{link_name}` 为链接父目录与文件名 (未设置链接时分别与视频侧相同).
     默认模板保持原文件名与扩展名.
     """
     base_path = Path(library.path)
-    ctx = TemplateContext.from_metadata(metadata, source_path=source_path, file_info=file_info)
+    ctx = TemplateContext.from_metadata(
+        metadata, source_path=source_path, file_info=file_info, actor_genders=actor_genders
+    )
     if video_dest is not None:
         ctx.apply_video(video_dest, base_path)
     else:

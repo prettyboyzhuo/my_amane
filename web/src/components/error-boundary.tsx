@@ -1,6 +1,8 @@
-import { Alert, Button, Code, Stack, Text } from "@mantine/core";
-import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
+import { Alert, Button, Code, Group, Stack, Text } from "@mantine/core";
+import { IconAlertTriangle, IconRefresh, IconServer } from "@tabler/icons-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+
+import { shellEnvironment, shellSwitchServer } from "@/lib/shell";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -10,7 +12,7 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-/** 顶层渲染错误兜底 - 捕获子树抛出的异常, 展示可重试的错误提示而非白屏. */
+/** 捕获子树异常, 展示可重试提示而非白屏. */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null };
 
@@ -38,16 +40,30 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         radius="md"
       >
         <Stack gap="sm">
-          <Text size="sm">渲染此页面时抛出了未捕获的异常, 详情见下方.</Text>
+          <Text size="sm">渲染此页面时抛出了未捕获的异常, 详情见下方</Text>
           <Code block>{error.message}</Code>
-          <Button
-            size="xs"
-            variant="light"
-            leftSection={<IconRefresh size={14} />}
-            onClick={this.reset}
-          >
-            重试
-          </Button>
+          <Group gap="xs">
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconRefresh size={14} />}
+              onClick={this.reset}
+            >
+              重试
+            </Button>
+            {/* 壳内渲染失败时页面入口点不到, 这里是唯一的出口. */}
+            {shellEnvironment() ? (
+              <Button
+                size="xs"
+                variant="light"
+                color="gray"
+                leftSection={<IconServer size={14} />}
+                onClick={() => shellSwitchServer()}
+              >
+                切换服务器
+              </Button>
+            ) : null}
+          </Group>
         </Stack>
       </Alert>
     );

@@ -2,19 +2,21 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Response
-from sqlalchemy.exc import IntegrityError
 
 from ...db.models import SCRAPE_FACET_KINDS, FacetKind, FacetSortField, SortOrder
 from ...db.repo_types import FacetItem
+from ...utils.model import to_resp
 from ..deps import RepoDep
 from ..models import (
-    FacetCreateRequest,
     FacetListResponse,
     FacetMergeRequest,
     FacetRenameRequest,
     FacetResponse,
     FacetRuleListResponse,
     FacetRuleResponse,
+    UserTagResponse,
+    UserTagsCreateRequest,
+    UserTagsCreateResponse,
 )
 
 logger = structlog.get_logger()
@@ -26,18 +28,12 @@ def _facet_response(item: FacetItem) -> FacetResponse:
     return FacetResponse(id=item.id, name=item.name, count=item.count)
 
 
-@router.post("/user_tag", status_code=201)
-async def create_user_tag(req: FacetCreateRequest, repo: RepoDep) -> FacetResponse:
-    """创建用户标签."""
-    name = req.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="名称不能为空")
-    try:
-        tag = await repo.create_user_tag(name)
-    except IntegrityError as e:
-        raise HTTPException(status_code=409, detail="用户标签名称已存在") from e
-    assert tag.id is not None
-    return FacetResponse(id=tag.id, name=tag.name, count=0)
+@router.post("/user_tag")
+async def create_user_tags(req: UserTagsCreateRequest, repo: RepoDep) -> UserTagsCreateResponse:
+    """按名称取回或新建用户标签; 已存在的名称直接复用, 响应与入参同序."""
+    tags, created = await repo.ensure_user_tags(req.names)
+    logger.info("user tags ensured", requested=len(req.names), created=created)
+    return UserTagsCreateResponse(items=[to_resp(UserTagResponse, tag) for tag in tags], created=created)
 
 
 @router.get("/{kind}")
@@ -50,14 +46,12 @@ async def list_facets(
     sort_by: Annotated[FacetSortField, Query(description="Sort field")] = FacetSortField.NAME,
     order: Annotated[SortOrder, Query(description="Sort order")] = SortOrder.ASC,
 ) -> FacetListResponse:
-    """分页列出分类目录条目 (演员/导演/标签/厂商/发行商/系列/用户 tag)."""
     items, total = await repo.list_facets(kind, search=search, offset=offset, limit=limit, sort_by=sort_by, order=order)
     return FacetListResponse(items=[_facet_response(i) for i in items], total=total)
 
 
 @router.get("/{kind}/rules")
 async def list_facet_rules(kind: FacetKind, repo: RepoDep) -> FacetRuleListResponse:
-    """列出爬取侧分类的用户规则 (别名 / 黑名单)."""
     if kind not in SCRAPE_FACET_KINDS:
         raise HTTPException(status_code=400, detail="该分类不支持规则")
     try:
@@ -118,7 +112,7 @@ async def merge_facets(kind: FacetKind, req: FacetMergeRequest, repo: RepoDep) -
 
 @router.patch("/{kind}/{facet_id}")
 async def rename_facet(kind: FacetKind, facet_id: int, req: FacetRenameRequest, repo: RepoDep) -> FacetResponse:
-    """重命名分类实体. 新名称与另一实体冲突时返回 409 (建议改用合并)."""
+    """新名称与另一实体冲突时返回 409 (应使用合并)."""
     name = req.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="名称不能为空")

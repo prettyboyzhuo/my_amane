@@ -8,7 +8,7 @@ export interface ProxyImageProps extends ImgHTMLAttributes<HTMLImageElement> {
   placeholder?: ReactNode;
 }
 
-/** 近视口才去抢全局槽; 与哨兵 200px 错开, 让将入视口的图先排到队列前面. */
+/** 邻近视口才申请全局槽; 与哨兵 200px 错开, 让将入视口的图先排到队列前面. */
 const VIEWPORT_ROOT_MARGIN_PX = 400;
 
 /**
@@ -19,7 +19,7 @@ const VIEWPORT_ROOT_MARGIN_PX = 400;
  * 排队期间渲染 placeholder (默认空 div) 且不发请求; src 就绪后按正常
  * <img> 行为加载, onLoad/onError 释放信号量槽位.
  *
- * 只对进入/邻近视口的 proxy 图 acquire. 若先设 src 再靠 loading=lazy,
+ * 只对进入/邻近视口的 proxy 图 acquire. 若先设置 src 再靠 loading=lazy,
  * 屏外图占着槽却不发请求, 视口内的图会一直空白.
  */
 export function ProxyImage({

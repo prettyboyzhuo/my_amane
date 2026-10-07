@@ -7,8 +7,6 @@ if TYPE_CHECKING:
 
 
 class SrTool(StrEnum):
-    """支持的图像超分工具 (底层二进制)."""
-
     REALESRGAN = "realesrgan"
     WAIFU2X = "waifu2x"
 
@@ -22,18 +20,12 @@ class SrPreset(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PresetMeta:
-    """预设的完整参数解析结果."""
-
     tool: SrTool
-    """使用的超分工具."""
     model: str
     scale: int
-    """放大倍率."""
     noise_level: int
-    """降噪级别."""
 
 
-# 预设 → 参数的映射表.
 _PRESET_META: Mapping[SrPreset, PresetMeta] = {
     SrPreset.REALESR_PHOTO_4X: PresetMeta(
         tool=SrTool.REALESRGAN,
@@ -51,22 +43,16 @@ _PRESET_META: Mapping[SrPreset, PresetMeta] = {
 
 
 def get_preset_meta(preset: SrPreset) -> PresetMeta:
-    """获取预设的完整参数."""
     return _PRESET_META[preset]
 
 
 @dataclass(frozen=True, slots=True)
 class ToolMeta:
-    """超分工具元数据."""
-
     binary_name: str
     default_model: str
     models: tuple[str, ...]
-    """可用模型."""
     native_scale: int
-    """原生放大倍率."""
     scales: tuple[int, ...]
-    """可选放大倍率."""
     download_urls: dict[str, str] = field(default_factory=dict)
     """sys.platform → 下载 URL. key: darwin/linux/win32."""
 
@@ -114,5 +100,4 @@ _TOOL_META: Mapping[SrTool, ToolMeta] = {
 
 
 def get_tool_meta(tool: SrTool) -> ToolMeta:
-    """获取工具的静态元数据."""
     return _TOOL_META[tool]

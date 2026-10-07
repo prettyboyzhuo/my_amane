@@ -5,7 +5,6 @@ import structlog
 from fastapi import APIRouter, HTTPException, Response
 
 from ...db.models import TaskType
-from ...enums import LibraryAutomation
 from ...handlers import RefreshPayload, ScanMode
 from ...utils.model import to_resp
 from ..deps import RepoDep, RuntimeDep
@@ -29,64 +28,66 @@ router = APIRouter(prefix="/libraries", tags=["libraries"])
 
 @router.get("/path-template-schema")
 async def get_path_template_schema() -> PathTemplateSchemaResponse:
-    """路径模板占位符与默认值 (与 resolve_paths 同源, 供前端表单渲染)."""
+    """与 resolve_paths 同源."""
     return path_template_schema()
 
 
 @router.get("")
 async def list_libraries(repo: RepoDep) -> LibraryListResponse:
-    """列出所有已配置的媒体库"""
     items = await repo.list_libraries()
     return LibraryListResponse(items=[to_resp(LibraryResponse, lib) for lib in items])
 
 
 @router.post("", status_code=201)
 async def create_library(req: LibraryCreateRequest, repo: RepoDep, runtime: RuntimeDep) -> LibraryResponse:
-    """添加新的媒体库, 可选触发初始扫描并热添加到监控器"""
-    # 路径校验: 必须存在, 是目录, 在 safe_dirs 内
+    # 校验路径: 须存在、是目录、位于 safe_dirs 内
     await validate_directory_path(req.path, runtime.safe_dirs)
 
     name = req.name or Path(req.path).name
 
-    lib = await repo.create_library(
+    try:
+        lib = await repo.create_library(
+            name=name,
+            path=req.path,
+            automation=req.automation,
+            ingest=req.ingest,
+            cloud_path=req.cloud_path,
+            recursive=req.recursive,
+            patterns=req.patterns,
+            move_mode=req.move_mode,
+            video_template=req.video_template,
+            link_template=req.link_template,
+            link_mode=req.link_mode,
+            strm_content_template=req.strm_content_template,
+            thumb_template=req.thumb_template,
+            poster_template=req.poster_template,
+            fanart_template=req.fanart_template,
+            extrafanart_template=req.extrafanart_template,
+            nfo_template=req.nfo_template,
+            trailer_template=req.trailer_template,
+            subtitle_template=req.subtitle_template,
+            subtitle_extensions=req.subtitle_extensions,
+            write_nfo=req.write_nfo,
+            copy_resources=req.copy_resources,
+            trailer_pattern=req.trailer_pattern,
+            blacklist_patterns=req.blacklist_patterns,
+            min_file_size=req.min_file_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    assert lib.id is not None
+
+    logger.info(
+        "library created",
+        library_id=lib.id,
         name=name,
         path=req.path,
         automation=req.automation,
-        recursive=req.recursive,
-        patterns=req.patterns,
-        move_mode=req.move_mode,
-        video_template=req.video_template,
-        link_template=req.link_template,
-        link_mode=req.link_mode,
-        strm_content_template=req.strm_content_template,
-        thumb_template=req.thumb_template,
-        poster_template=req.poster_template,
-        fanart_template=req.fanart_template,
-        extrafanart_template=req.extrafanart_template,
-        nfo_template=req.nfo_template,
-        trailer_template=req.trailer_template,
-        subtitle_template=req.subtitle_template,
-        subtitle_extensions=req.subtitle_extensions,
-        write_nfo=req.write_nfo,
-        copy_resources=req.copy_resources,
-        trailer_pattern=req.trailer_pattern,
-        blacklist_patterns=req.blacklist_patterns,
-        min_file_size=req.min_file_size,
+        ingest=req.ingest,
     )
-    assert lib.id is not None
 
-    logger.info("library created", library_id=lib.id, name=name, path=req.path, automation=req.automation)
-
-    # 热添加到文件监控器
-    if req.automation != LibraryAutomation.NONE and runtime.watcher_service:
-        runtime.watcher_service.add_library(
-            path=req.path,
-            library_id=lib.id,
-            recursive=req.recursive,
-            patterns=req.patterns,
-            skip_patterns=[req.trailer_pattern, *req.blacklist_patterns],
-            min_file_size=req.min_file_size,
-        )
+    if runtime.watcher_service:
+        runtime.watcher_service.sync_library(lib)
 
     # 提交初始 Refresh 任务
     if req.scan:
@@ -96,7 +97,8 @@ async def create_library(req: LibraryCreateRequest, repo: RepoDep, runtime: Runt
                 library_id=lib.id,
                 recursive=req.recursive,
                 patterns=req.patterns,
-                path=req.path,
+                # 用落库后的路径: 入口已把库路径解析为真实路径, 首次扫描必须与它同一形式.
+                path=lib.path,
                 scan={ScanMode.add},
                 scrape=set(),
             ),
@@ -120,23 +122,26 @@ async def update_library(
     repo: RepoDep,
     runtime: RuntimeDep,
 ) -> LibraryResponse:
-    """更新媒体库配置"""
     updates = cast("LibraryUpdates", req.model_dump(exclude_unset=True))
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
 
-    # 仅当 path 字段被显式更新时才校验 -- 其它字段更新不需要重新检查路径
+    # 仅 path 被显式更新时才校验
     if "path" in updates and updates["path"] is not None:
         await validate_directory_path(updates["path"], runtime.safe_dirs)
 
-    lib = await repo.update_library(library_id, **updates)
+    try:
+        lib = await repo.update_library(library_id, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if lib is None:
         raise HTTPException(status_code=404, detail="Library not found")
     logger.info("library updated", library_id=library_id, fields=list(updates.keys()))
 
-    # 同步文件监控: 监控相关字段变化时, 先移除旧监控再按最新状态重建
     watch_fields = {
         "automation",
+        "ingest",
+        "cloud_path",
         "path",
         "recursive",
         "patterns",
@@ -145,28 +150,17 @@ async def update_library(
         "min_file_size",
     }
     if runtime.watcher_service and watch_fields & updates.keys():
-        runtime.watcher_service.remove_library(library_id)
-        if lib.automation != LibraryAutomation.NONE:
-            assert lib.id is not None
-            runtime.watcher_service.add_library(
-                path=lib.path,
-                library_id=lib.id,
-                recursive=lib.recursive,
-                patterns=lib.patterns,
-                skip_patterns=[lib.trailer_pattern, *(lib.blacklist_patterns or [])],
-                min_file_size=lib.min_file_size,
-            )
+        runtime.watcher_service.sync_library(lib)
+    # 清单记录生成时的库根: 路径改掉后按新库根重解释相对路径会删错文件.
+    if "path" in updates:
+        runtime.inventory_store.drop_library(library_id)
 
     return to_resp(LibraryResponse, lib)
 
 
 @router.delete("/{library_id}", status_code=204)
 async def delete_library(library_id: int, repo: RepoDep, runtime: RuntimeDep):
-    """删除媒体库.
-
-    级联删除该库下所有 MediaFile 记录 (library_id 非空 FK), 并停止监控该目录.
-    仅删除数据库索引, 不动磁盘文件.
-    """
+    """级联删除该库 MediaFile (library_id 非空 FK). 仅删除数据库索引, 不动磁盘文件."""
     existing = await repo.list_libraries()
     if not any(lib.id == library_id for lib in existing):
         raise HTTPException(status_code=404, detail="Library not found")
@@ -176,5 +170,6 @@ async def delete_library(library_id: int, repo: RepoDep, runtime: RuntimeDep):
         runtime.watcher_service.remove_library(library_id)
 
     deleted_media = await repo.delete_library(library_id)
+    runtime.inventory_store.drop_library(library_id)
     logger.info("library deleted", library_id=library_id, deleted_media=deleted_media)
     return Response(status_code=204)

@@ -1,4 +1,9 @@
-"""ThePornDB 演员档案 — Stash-box GraphQL searchPerformer, 与影片爬虫共用 api_token."""
+"""Stash-box searchPerformer; 与影片爬虫共用 api_token.
+
+精确匹配 name / aliases, 不回退首条. deleted 跟随 merged_into_id, 无目标则丢弃.
+头像按宽×高排序. urls 写入 provider_ids (跳过本站). disambiguation 为 tagline.
+stash-box 的 death_date / 出道年 / 发色瞳色 / ethnicity / breast_type / 纹身穿孔不写入列.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from ...base import CrawlerProfile
 from ..base import ActorCrawler
 from ..models import ActorMetadata
 
-# Stash 客户端 PerformerFragment 子集. 不用顶层 cup_size 等较新字段, 以免旧 stash-box 拒查询.
+# 不用顶层 cup_size 等较新字段, 以免旧 stash-box 拒查询.
 _PERFORMER_FIELDS = """
     id name aliases gender birth_date country height disambiguation
     deleted merged_into_id
@@ -62,7 +67,7 @@ _MERGE_HOPS = 4
 
 
 class ThePornDBActorCrawler(ActorCrawler):
-    """theporndb.net Stash-box 演员搜索. 无 token 不发请求; 精确匹配 name/aliases, 不回退首条."""
+    """无 token 不发请求. 精确匹配 name/aliases, 不允许回退首条."""
 
     @classmethod
     def profile(cls) -> CrawlerProfile:
@@ -88,6 +93,7 @@ class ThePornDBActorCrawler(ActorCrawler):
         hit = pick_performer(results, name)
         if hit is None:
             return None
+        # 跟随合并目标.
         resolved = await self._follow_merge(hit, headers)
         return performer_to_metadata(resolved) if resolved is not None else None
 
@@ -98,7 +104,7 @@ class ThePornDBActorCrawler(ActorCrawler):
         raise NotImplementedError("ThePornDBActorCrawler overrides fetch()")
 
     async def _follow_merge(self, hit: dict[str, Any], headers: dict[str, str]) -> dict[str, Any] | None:
-        """deleted 条目跟 merged_into_id; 无合并目标则丢弃. 环/过深视为未命中."""
+        """deleted 条目跟随 ``merged_into_id``; 无合并目标则丢弃. 环或过深视为未命中."""
         current: dict[str, Any] | None = hit
         seen: set[str] = set()
         for _ in range(_MERGE_HOPS):
@@ -130,7 +136,7 @@ class ThePornDBActorCrawler(ActorCrawler):
 
 
 def pick_performer(results: list[Any], name: str) -> dict[str, Any] | None:
-    """精确匹配 canonical 名或 aliases; 比较 NFKC + casefold. 不回退首条, 避免模糊搜索误伤."""
+    """精确匹配 canonical 名或 aliases (NFKC + casefold). 不允许回退首条."""
     needle = _norm(name).casefold()
     if not needle:
         return None
@@ -143,7 +149,6 @@ def pick_performer(results: list[Any], name: str) -> dict[str, Any] | None:
 
 
 def performer_to_metadata(perf: dict[str, Any]) -> ActorMetadata | None:
-    """将 GraphQL Performer 转为 ActorMetadata; 无名则 None."""
     name = _norm(str(perf.get("name") or ""))
     if not name:
         return None

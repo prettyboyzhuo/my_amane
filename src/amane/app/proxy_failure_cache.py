@@ -1,8 +1,4 @@
-"""proxy-image 上游失败的进程内负缓存 + 同 URL singleflight.
-
-仅服务 ``GET /resources/proxy``: 失效外链被前端反复请求时, 短时间内直接 502,
-避免每次都打满 WebClient 重试/超时. 不进 DB / 不进 HotSettings.
-"""
+"""仅服务 ``GET /resources/proxy``: 失效外链短时间内直接 502, 避免打满 WebClient 重试. 不写入 DB / HotSettings."""
 
 from __future__ import annotations
 
@@ -19,8 +15,6 @@ T = TypeVar("T")
 
 
 class ProxyFailureCache:
-    """失败 URL 负缓存 (TTL) + 进行中请求合并."""
-
     def __init__(self, *, ttl_seconds: float = TTL_SECONDS, max_entries: int = MAX_ENTRIES) -> None:
         self._ttl = ttl_seconds
         self._max_entries = max_entries
@@ -29,19 +23,17 @@ class ProxyFailureCache:
         self._lock = asyncio.Lock()
 
     def is_blocked(self, url: str) -> bool:
-        """URL 是否仍在失败负缓存窗口内."""
         expires = self._failures.get(url)
         if expires is None:
             return False
         if time.monotonic() >= expires:
             self._failures.pop(url, None)
             return False
-        # 访问时挪到末尾, 满容淘汰时优先丢最久未用的
+        # 访问时移到末尾, 满容淘汰时优先删除最久未用的
         self._failures.move_to_end(url)
         return True
 
     def remember(self, url: str) -> None:
-        """记录一次上游失败, 在 TTL 内短路后续请求."""
         self._purge_expired()
         self._failures[url] = time.monotonic() + self._ttl
         self._failures.move_to_end(url)
@@ -49,11 +41,9 @@ class ProxyFailureCache:
             self._failures.popitem(last=False)
 
     def forget(self, url: str) -> None:
-        """清除负缓存条目 (acquire 成功后调用)."""
         self._failures.pop(url, None)
 
     async def coalesce(self, url: str, factory: Callable[[], Awaitable[T]]) -> T:
-        """同 URL 并发调用只执行一次 factory, 其余等待同一结果."""
         async with self._lock:
             existing = self._inflight.get(url)
             if existing is not None:

@@ -1,7 +1,7 @@
 {
   "title": "日志",
   "empty": "暂无日志",
-  "noMatch": "没有匹配的日志条目。",
+  "noMatch": "没有匹配的日志条目",
   "searchPlaceholder": "level:ERROR AND source:scraper",
   "levels": {
     "debug": "调试",
@@ -10,18 +10,11 @@
     "error": "错误",
     "critical": "严重"
   },
-  "columns": {
-    "timestamp": "时间",
-    "level": "级别",
-    "source": "来源",
-    "message": "消息"
-  },
   "actions": {
     "autoScroll": "自动滚动",
     "clear": "清空"
   },
   "queryHelp": {
-    "title": "查询语法 (类 Lucene)",
     "fallback": "纯文本输入将回退为模糊搜索"
   }
 }

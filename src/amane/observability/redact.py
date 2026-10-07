@@ -15,7 +15,7 @@ _SCRAPE_HOT_KEYS: tuple[str, ...] = ("scraping", "network", "llm", "r18", "plugi
 
 
 def hot_slice_for_task(hot_dump: dict[str, Any], task_type: str) -> dict[str, Any]:
-    """按任务类型裁剪 Hot dump, 去掉与回放无关的噪声 section."""
+    """去掉与回放无关的噪声 section."""
     if task_type == "scrape":
         return {k: deepcopy(hot_dump[k]) for k in _SCRAPE_HOT_KEYS if k in hot_dump}
     drop = {"watcher", "worker", "logging"}
@@ -23,7 +23,7 @@ def hot_slice_for_task(hot_dump: dict[str, Any], task_type: str) -> dict[str, An
 
 
 def needs_secrets_file(hot_dump: dict[str, Any]) -> bool:
-    """是否存在需旁路保存的明文密钥 (默认 r18 密码不算)."""
+    """默认 r18 密码不算需旁路保存的明文密钥."""
     scraping = hot_dump.get("scraping")
     if isinstance(scraping, dict):
         site_config = scraping.get("site_config")
@@ -138,7 +138,6 @@ def redact_proxy(proxy: str) -> str:
 
 
 def redact_dsn(dsn: str) -> str:
-    """隐藏 DSN 密码."""
     try:
         return make_url(dsn).render_as_string(hide_password=True)
     except Exception:

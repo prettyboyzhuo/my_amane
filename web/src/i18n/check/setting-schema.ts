@@ -11,8 +11,6 @@ import zhCN from "../locales/zh-CN/settings.json";
 import type { CollectEnumEntries, CollectFieldPaths, ExtractRefName, SchemaByName } from "./utils";
 import { assertEnums, assertFields } from "./utils";
 
-// ==================== 顶层 section 信息 ====================
-
 type HotSettings = typeof schemas.HotSettingsSchema;
 type SectionName = keyof HotSettings["properties"] & string;
 
@@ -22,9 +20,6 @@ type SectionSchema<S extends SectionName> = HotSettings["properties"][S] extends
   ? SchemaByName<ExtractRefName<R>>
   : never;
 
-// ==================== 字段路径 & 枚举条目 ====================
-
-/** 所有 section 的字段路径联合 */
 type FieldPaths = {
   [S in SectionName]: SectionSchema<S> extends {
     properties: infer Props extends Record<string, unknown>;
@@ -34,7 +29,6 @@ type FieldPaths = {
     : never;
 }[SectionName];
 
-/** 所有 section 的枚举条目联合 */
 type EnumEntries = {
   [S in SectionName]: SectionSchema<S> extends {
     properties: infer Props extends Record<string, unknown>;

@@ -1,5 +1,3 @@
-"""演员浏览查询 - 人物字段 + 影片 count + 字段/范围筛选."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -11,17 +9,17 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ...enums import ActorGender
-from ..models import Actor, ActorAlias, ActorSortField, MetadataActor, SortOrder
+from ..models import Actor, ActorAlias, ActorSortField, ActorUserTag, MetadataActor, SortOrder
 from ..repo_types import ActorBrowseItem, ActorBrowseParams
 
 
 def _has_image_expr():
-    """image_urls JSON 非空数组 (SQLite json_array_length)."""
+    """SQLite ``json_array_length``; 空数组不算有图."""
     return func.json_array_length(col(Actor.image_urls)) > 0
 
 
 def _has_person_expr():
-    """任一人物标量/简介非空 (gender 已知亦算)."""
+    """任一人物标量或简介非空; gender 已知亦算."""
     return or_(
         and_(col(Actor.gender).is_not(None), col(Actor.gender) != ActorGender.UNKNOWN),
         and_(col(Actor.birthday).is_not(None), col(Actor.birthday) != ""),
@@ -61,7 +59,7 @@ def _actor_primary_order(sort_by: ActorSortField, order: SortOrder, *, count_exp
     else:
         primary = col(Actor.name)
     ordered = asc(primary) if ascending else desc(primary)
-    # 人物指标空值沉底, 避免"无生日"在 ASC 时抢前排.
+    # 人物指标空值排到排序末尾, 避免无生日在 ASC 时排在最前.
     if sort_by in (
         ActorSortField.BIRTHDAY,
         ActorSortField.HEIGHT,
@@ -113,6 +111,10 @@ def _build_browse_filters(
         filters.append(_has_person_expr())
     elif params.has_person is False:
         filters.append(~_has_person_expr())
+    filters.extend(
+        col(Actor.id).in_(select(ActorUserTag.actor_id).where(col(ActorUserTag.user_tag_id) == user_tag_id))
+        for user_tag_id in dict.fromkeys(params.user_tag_ids or [])
+    )
     if params.has_image is True:
         filters.append(_has_image_expr())
     elif params.has_image is False:
@@ -120,8 +122,7 @@ def _build_browse_filters(
             or_(
                 col(Actor.image_urls).is_(None),
                 func.json_array_length(col(Actor.image_urls)) == 0,
-                # 兼容未初始化 / 空串
-                cast(col(Actor.image_urls), String) == "[]",
+                cast(col(Actor.image_urls), String) == "[]",  # 未初始化或字面量空数组
             )
         )
     if params.gender:
@@ -142,7 +143,7 @@ def _build_browse_filters(
 async def browse_actors(
     session: AsyncSession, params: ActorBrowseParams, *, id_subquery_sql: str | None = None
 ) -> tuple[list[ActorBrowseItem], int]:
-    """分页列出演员及关联影片数, 人物摘要."""
+    """列表行不含简介/别名/源字典."""
     filters = _build_browse_filters(params, id_subquery_sql=id_subquery_sql)
 
     base = select(Actor)

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Virtuoso } from "react-virtuoso";
 import { LogKvPairs } from "@/components/log/log-kv";
+import { LogTimestamp } from "@/components/log/log-timestamp";
 import { type LogEntry, logLevelMantineColor, useLogStore } from "@/stores/logs";
 
 interface TaskLogViewProps {
@@ -11,8 +12,8 @@ interface TaskLogViewProps {
 }
 
 /**
- * 任务内联实时日志 - - 按 task_id 过滤全局日志 store (与 /logs 页同源的 WebSocket 缓冲), 零后端改动.
- * 局限: 仅覆盖 store 窗口内 (最近 5000 条) 的日志; 更早历史见任务记录内 task.log.
+ * 按 task_id 过滤全局日志 store (与 /logs 页同源的 WebSocket 缓冲).
+ * 仅覆盖 store 窗口内 (最近 5000 条); 更早历史见任务记录内 task.log.
  */
 export function TaskLogView({ taskId, height = 220 }: TaskLogViewProps) {
   const { t } = useTranslation("tasks");
@@ -65,9 +66,7 @@ function TaskLogRow({ entry }: { entry: LogEntry }) {
       align="flex-start"
       style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}
     >
-      <Text size="xs" c="dimmed" ff="monospace" style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
-        {new Date(entry.timestamp).toLocaleTimeString()}
-      </Text>
+      <LogTimestamp timestamp={entry.timestamp} />
       <Badge
         size="xs"
         color={logLevelMantineColor(entry.level)}
@@ -76,7 +75,7 @@ function TaskLogRow({ entry }: { entry: LogEntry }) {
       >
         {entry.level}
       </Badge>
-      <Text size="xs" style={{ flex: 1, wordBreak: "break-word" }}>
+      <Text size="xs" style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
         <Text component="span" fw={700}>
           {entry.message}
         </Text>

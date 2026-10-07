@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 
 /**
  * 列表多选 - Meta / Actor / Catalog 表共用.
- * `toggleAll` / `isAllSelected` 接收当前页 id, 避免把 pageIds 放进 hook 依赖.
+ * `toggleAll` / `isAllSelected` 接收当前页 id, 避免把 pageIds 列入 hook 依赖.
  */
 export function useIdSelection() {
   const [selected, setSelected] = useState<Set<number>>(() => new Set());

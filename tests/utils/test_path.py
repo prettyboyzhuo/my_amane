@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from amane.utils.path import is_descendant
+from amane.utils.path import (
+    existing_disk_path,
+    is_descendant,
+    is_resolved_path,
+    nfc_path,
+    path_forms,
+    path_is_under,
+    resolved_path,
+)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="此测试不适用于 Windows")
@@ -84,3 +92,95 @@ def test_is_descendant_mixed_forms_fail_closed(monkeypatch):
 
     monkeypatch.setattr(os.path, "realpath", fake_realpath)
     assert is_descendant(r"\\?\C:\Users\Test", r"C:\Users") is False
+
+
+# じ: NFC = U+3058; NFD = し + 组合用浊点.
+_NFC_JI = "\u3058"
+_NFD_JI = "\u3057\u3099"
+
+
+@pytest.mark.parametrize(
+    ("raw", "want"),
+    [
+        (f"/a/{_NFC_JI}.mp4", f"/a/{_NFC_JI}.mp4"),
+        (f"/a/{_NFD_JI}.mp4", f"/a/{_NFC_JI}.mp4"),
+        (f"/a/{_NFD_JI}/{_NFC_JI}.mp4", f"/a/{_NFC_JI}/{_NFC_JI}.mp4"),
+        ("/ascii/foo.mp4", "/ascii/foo.mp4"),
+        ("", ""),
+    ],
+)
+def test_nfc_path(raw: str, want: str) -> None:
+    assert nfc_path(raw) == want
+    assert nfc_path(raw) == nfc_path(nfc_path(raw))
+
+
+@pytest.mark.parametrize(
+    ("path", "root", "want"),
+    [
+        ("/lib/show/a.mp4", "/lib/show", True),
+        ("/lib/show", "/lib/show", True),
+        ("/lib/show/nested/a.mp4", "/lib/show", True),
+        ("/lib/show2/a.mp4", "/lib/show", False),
+        ("/lib/showcase/a.mp4", "/lib/show", False),
+        ("/lib/a.mp4", "/lib/show", False),
+        ("/lib/show", "/lib/show/nested", False),
+        (f"/lib/{_NFD_JI}/a.mp4", f"/lib/{_NFC_JI}", True),
+    ],
+)
+def test_path_is_under(path: str, root: str, want: bool) -> None:
+    assert path_is_under(path, root) is want
+
+
+@pytest.mark.parametrize(
+    ("raw", "want"),
+    [
+        ("/a/foo.mp4", ("/a/foo.mp4",)),
+        (f"/a/{_NFC_JI}.mp4", (f"/a/{_NFC_JI}.mp4", f"/a/{_NFD_JI}.mp4")),
+        (f"/a/{_NFD_JI}.mp4", (f"/a/{_NFD_JI}.mp4", f"/a/{_NFC_JI}.mp4")),
+    ],
+)
+def test_path_forms(raw: str, want: tuple[str, ...]) -> None:
+    assert tuple(p.as_posix() for p in path_forms(raw)) == want
+
+
+def test_existing_disk_path_tries_nfd(tmp_path: Path) -> None:
+    """磁盘为 NFD 时, 用 NFC 查询仍返回可打开的路径."""
+    nfd = tmp_path / f"{_NFD_JI}.mp4"
+    nfd.write_bytes(b"x")
+    nfc = tmp_path / f"{_NFC_JI}.mp4"
+    found = existing_disk_path(nfc)
+    assert found is not None
+    assert found.read_bytes() == b"x"
+    assert existing_disk_path(tmp_path / "missing.mp4") is None
+
+
+class TestResolvedPath:
+    def test_alias_resolves_to_target(self, tmp_path: Path) -> None:
+        real = tmp_path / "real"
+        real.mkdir()
+        alias = tmp_path / "alias"
+        alias.symlink_to(real, target_is_directory=True)
+
+        assert resolved_path(alias) == real
+        assert is_resolved_path(alias) is False
+        assert is_resolved_path(real) is True
+
+    def test_missing_path_folds_literal_segments(self, tmp_path: Path) -> None:
+        """缺失路径仍做字面归一: ``..`` 被折叠, 不抛异常."""
+        missing = tmp_path / "gone" / ".." / "gone"
+
+        assert resolved_path(missing) == tmp_path / "gone"
+        assert is_resolved_path(missing) is True
+
+    def test_resolution_error_falls_back_to_literal(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """规范化查询失败 (断连网络盘 / 虚拟卷) 时按字面绝对路径回退, 不抛异常."""
+        # 路径须是平台绝对路径: 回退用 ``abspath``, 而 Windows 的 ntpath 会给 ``/vault/...`` 补上当前盘符.
+        literal = tmp_path / "vault" / "media" / "gone"
+
+        def fake_realpath(path, *, strict=False):
+            raise OSError(1, "Incorrect function")
+
+        monkeypatch.setattr(os.path, "realpath", fake_realpath)
+
+        assert resolved_path(literal) == literal
+        assert is_resolved_path(literal) is True

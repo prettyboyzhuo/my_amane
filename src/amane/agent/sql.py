@@ -16,7 +16,7 @@ import aiosqlite
 # - ``sqlite3.execute`` 硬性单语句, 多语句直接报错;
 # - authorizer (_readonly_authorizer): 解析层拒绝 ATTACH/DETACH 与 PRAGMA.
 #   ``mode=ro`` 只约束 main 库, ATTACH 挂载的库默认以读写打开, VACUUM INTO
-#   内部也走 ATTACH 授权动作 — 这两者是只读连接本身兜不住的, 必须由
+#   内部也经 ATTACH 授权动作 — 这两者是只读连接本身无法拦截的, 必须由
 #   authorizer 拦截.
 
 
@@ -107,7 +107,7 @@ class ReadonlySqlSandbox:
             raise SqlTimeoutError(f"查询超时 ({elapsed_ms:.0f}ms > {timeout_ms}ms)") from exc
         except sqlite3.Error as exc:
             # 列名/表名错误等必须变成工具可回收的 SqlSandboxError,
-            # 否则会冒泡成 SSE StreamError 打断整轮 (模型无法自行改 SQL 重试).
+            # 否则会冒泡成 SSE StreamError 打断整轮 (模型无法自行修改 SQL 重试).
             raise SqlSandboxError(str(exc)) from exc
 
     async def _run(self, uri: str, sql: str, *, max_rows: int | None) -> SqlResult:

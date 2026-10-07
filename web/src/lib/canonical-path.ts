@@ -9,9 +9,7 @@
  */
 
 export interface CanonicalPathParts {
-  /** 根: `"/"` / `"S:/"` / `"//server/share"` / `""` */
   root: string;
-  /** 根之后的段名列表 */
   segments: string[];
 }
 
@@ -38,9 +36,7 @@ export function splitCanonicalPath(path: string): CanonicalPathParts {
   return { root: "", segments: parts };
 }
 
-/**
- * 第 index 级 (0 = 根) 的完整路径, 供面包屑点击请求.
- */
+/** 第 index 级 (0 = 根) 的完整路径. */
 export function canonicalAncestor(parts: CanonicalPathParts, index: number): string {
   if (index <= 0) return parts.root;
   return parts.root + parts.segments.slice(0, index).join("/");

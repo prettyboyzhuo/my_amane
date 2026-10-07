@@ -1,4 +1,4 @@
-"""演员多源聚合 - 按站点顺序标量填空, 头像源优先拼接 image_urls."""
+"""按站点顺序标量填空; 头像源优先拼接 image_urls."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 
-# 标量人物字段: 先到先得 (空才填). source_urls 为多源字典, 不在此列.
+# 先到先得 (空才填). source_urls 为多源字典, 不在此列.
 _SCALAR_FIELDS: tuple[str, ...] = (
     "gender",
     "birthday",
@@ -29,8 +29,6 @@ _SCALAR_FIELDS: tuple[str, ...] = (
 
 
 class AggregatedActor(BaseModel):
-    """多源合并后的演员元数据."""
-
     aliases: list[str] = Field(default_factory=list)
     gender: ActorGender = ActorGender.UNKNOWN
     birthday: str | None = None
@@ -50,7 +48,7 @@ class AggregatedActor(BaseModel):
 
 
 def _scalar_empty(field: str, value: object) -> bool:
-    """标量空位: gender 的 unknown 视为可被填空覆盖."""
+    # gender 的 unknown 视为可被填空覆盖.
     if field == "gender":
         return value in (None, "", ActorGender.UNKNOWN)
     return value in (None, "")
@@ -70,17 +68,13 @@ def _dedupe_preserve(items: list[str]) -> list[str]:
 def merge_actor_metadata(
     results: Mapping[SiteName, ActorMetadata | None], *, profile_sites: list[SiteName], image_sites: list[SiteName]
 ) -> AggregatedActor:
-    """
-    按站点顺序合并演员结果.
+    """标量按 profile_sites 填空. aliases 为各站 name + aliases 并集, 站点显示名不当身份.
 
-    - 标量: profile_sites 顺序填空, 记入 field_sources
-    - aliases: 各站 ``name`` + ``aliases`` 并集 (先到先得). 站点显示名不当身份.
-    - provider_ids / source_urls: 并集 (先到先得)
-    - image_urls: image_sites 优先, 再档案站附图, 去重保序
-    - raw: 有结果的站点整份快照
+    image_urls: image_sites 优先, 再档案站附图, 去重保序.
     """
     out = AggregatedActor()
 
+    # 标量与 aliases 按 profile_sites 填空.
     for site in profile_sites:
         meta = results.get(site)
         if meta is None:
@@ -100,6 +94,7 @@ def merge_actor_metadata(
         if meta.source_url:
             out.source_urls.setdefault(site, meta.source_url)
 
+    # 头像: image_sites 优先, 再档案站附图.
     image_order = [*image_sites, *[s for s in profile_sites if s not in image_sites]]
     images: list[str] = []
     for site in image_order:
@@ -124,7 +119,6 @@ def merge_actor_metadata(
 
 
 def merge_actor_rows_fill_empty(target: AggregatedActor, source: AggregatedActor) -> AggregatedActor:
-    """将 source 填入 target 空位 (Actor 实体 merge 用)."""
     for field in _SCALAR_FIELDS:
         if _scalar_empty(field, getattr(target, field)) and not _scalar_empty(field, getattr(source, field)):
             setattr(target, field, getattr(source, field))

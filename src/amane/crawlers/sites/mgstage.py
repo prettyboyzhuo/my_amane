@@ -5,7 +5,7 @@ from parsel import Selector
 from ...enums import SiteName
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
 
 
@@ -15,9 +15,8 @@ class MGStageCrawler(Crawler):
         return CrawlerProfile(name=SiteName.MGSTAGE, base_url="https://www.mgstage.com", cookies={"adc": "1"})
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """搜索番号, 返回详情页 URL."""
         number = query.number
-        # 先尝试直接详情页
+        # 先尝试直接访问详情页.
         direct_url = f"{self.base_url}/product/product_detail/{number}/"
         try:
             text = await self.client.get_html(direct_url, cookies=self.cookies)
@@ -29,12 +28,11 @@ class MGStageCrawler(Crawler):
             if title:
                 return direct_url
 
-        # 回退到搜索
+        # 未命中则回退搜索.
         search_url = f"{self.base_url}/search/cSearch.php?search_word={number}"
         text = await self.client.get_html(search_url, cookies=self.cookies)
         html = Selector(text=text)
         results = html.xpath('//a[contains(@href, "/product/product_detail/")]/@href').getall()
-        # 去重并返回绝对 URL
         seen: set[str] = set()
         urls: list[str] = []
         for r in results:
@@ -46,7 +44,6 @@ class MGStageCrawler(Crawler):
         return urls[0] if urls else None
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """解析 MGStage 详情页."""
         text = await self.client.get_html(url, cookies=self.cookies)
         if not text:
             return None
@@ -57,7 +54,6 @@ class MGStageCrawler(Crawler):
         if not title:
             return None
 
-        # 从 URL 提取番号
         number_match = re.search(r"/product_detail/([^/]+)", url)
         number = number_match.group(1) if number_match else ""
 
@@ -84,7 +80,7 @@ class MGStageCrawler(Crawler):
         return MediaMetadata(
             number=number,
             title=title,
-            actors=actors,
+            actors=film_actors(actors),
             studio=studio or None,
             publisher=publisher or None,
             release=release,

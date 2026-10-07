@@ -16,8 +16,10 @@ import {
 import { useDisclosure } from "@mantine/hooks";
 import {
   IconBrandGithub,
+  IconBookmark,
   IconCategory,
   IconClock,
+  IconDeviceMobile,
   IconFileText,
   IconFolders,
   IconLanguage,
@@ -35,6 +37,7 @@ import {
   IconSun,
   IconSunMoon,
   IconUsers,
+  IconWorldSearch,
   type Icon,
 } from "@tabler/icons-react";
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
@@ -42,8 +45,11 @@ import type { ParseKeys } from "i18next";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { APP_SHELL_HEADER_HEIGHT } from "@/components/layout/app-shell-metrics";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { VersionMenu } from "@/components/layout/version-menu";
 import { APP_NAME, GITHUB_URL } from "@/lib/app";
+import { navItemClick } from "@/lib/nav-defaults";
+import { shellEnvironment } from "@/lib/shell";
 import { useConnectionStore } from "@/stores/connection";
 import { useUIStore } from "@/stores/ui";
 
@@ -72,6 +78,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/actors", labelKey: "nav.actors", icon: IconUsers },
       { to: "/catalog", labelKey: "nav.catalog", icon: IconCategory },
       { to: "/feeds", labelKey: "nav.feeds", icon: IconRss, end: true },
+      { to: "/saved-queries", labelKey: "nav.savedQueries", icon: IconBookmark },
     ],
   },
   {
@@ -90,6 +97,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/tasks", labelKey: "nav.tasks", icon: IconListDetails },
       { to: "/schedules", labelKey: "nav.schedules", icon: IconClock },
       { to: "/logs", labelKey: "nav.logs", icon: IconFileText },
+      { to: "/network", labelKey: "nav.networkCheck", icon: IconWorldSearch },
     ],
   },
 ];
@@ -100,20 +108,77 @@ function isNavActive(pathname: string, to: string, end = false): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-function NavItemLink({ item }: { item: NavItem }) {
+function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const { t } = useTranslation("common");
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const listDefaults = useUIStore((state) => state.listDefaults);
   const Icon = item.icon;
+  const shell = {
+    label: t(item.labelKey),
+    leftSection: <Icon size={18} stroke={1.6} />,
+    active: isNavActive(pathname, item.to, item.end),
+    variant: "filled" as const,
+    style: { borderRadius: "var(--mantine-radius-md)" },
+  };
+  // 列表条目携带该页的默认参数: 入口地址不残留搜索词、页码与 agent 深链.
+  // 路由的参数类型各不相同, 因此按 `to` 分支给字面量目标. 分类入口是种类索引页, 没有可承载的参数.
+  if (item.to === "/meta") {
+    return (
+      <NavLink
+        component={Link}
+        to="/meta"
+        onClick={(event) =>
+          navItemClick(
+            event,
+            onNavigate,
+            () => void navigate({ to: "/meta", search: listDefaults.meta ?? {} }),
+          )
+        }
+        {...shell}
+      />
+    );
+  }
+  if (item.to === "/actors") {
+    return (
+      <NavLink
+        component={Link}
+        to="/actors"
+        onClick={(event) =>
+          navItemClick(
+            event,
+            onNavigate,
+            () => void navigate({ to: "/actors", search: listDefaults.actors ?? {} }),
+          )
+        }
+        {...shell}
+      />
+    );
+  }
+  if (item.to === "/feeds") {
+    return (
+      <NavLink
+        component={Link}
+        to="/feeds"
+        onClick={(event) =>
+          navItemClick(
+            event,
+            onNavigate,
+            () => void navigate({ to: "/feeds", search: listDefaults.feeds ?? {} }),
+          )
+        }
+        {...shell}
+        activeOptions={{ exact: true, includeSearch: false }}
+      />
+    );
+  }
   return (
     <NavLink
       component={Link}
       to={item.to}
+      onClick={onNavigate}
+      {...shell}
       activeOptions={item.end ? { exact: true, includeSearch: false } : undefined}
-      label={t(item.labelKey)}
-      leftSection={<Icon size={18} stroke={1.6} />}
-      active={isNavActive(pathname, item.to, item.end)}
-      variant="filled"
-      style={{ borderRadius: "var(--mantine-radius-md)" }}
     />
   );
 }
@@ -134,17 +199,15 @@ function ThemeToggle() {
     );
 
   return (
-    <Tooltip label={t(`theme.${theme}`)}>
-      <ActionIcon
-        variant="subtle"
-        color="gray"
-        size="lg"
-        onClick={() => setTheme(next)}
-        aria-label="toggle theme"
-      >
-        {icon}
-      </ActionIcon>
-    </Tooltip>
+    <HintedActionIcon
+      variant="subtle"
+      color="gray"
+      size="lg"
+      onClick={() => setTheme(next)}
+      label={t(`theme.${theme}`)}
+    >
+      {icon}
+    </HintedActionIcon>
   );
 }
 
@@ -181,6 +244,28 @@ function LanguageMenu() {
   );
 }
 
+/**
+ * 客户端设置入口: 服务器与登录态属于客户端, 不并入服务端配置. 只在壳内渲染 (判据见 lib/shell.ts).
+ */
+function ClientSettingsLink({ available }: { available: boolean }) {
+  const { t } = useTranslation("common");
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  if (!available) return null;
+
+  return (
+    <HintedActionIcon
+      variant="subtle"
+      color={isNavActive(pathname, "/client") ? "brand" : "gray"}
+      size="lg"
+      onClick={() => void navigate({ to: "/client" })}
+      label={t("nav.client")}
+    >
+      <IconDeviceMobile size={18} />
+    </HintedActionIcon>
+  );
+}
+
 function ConnectionIndicator() {
   const status = useConnectionStore((s) => s.status);
   const { t } = useTranslation("common");
@@ -193,20 +278,18 @@ function ConnectionIndicator() {
         : "status.disconnected";
 
   return (
-    <Tooltip label={t(labelKey)}>
-      <ActionIcon variant="subtle" color="gray" size="lg" aria-label={t(labelKey)}>
-        <Box
-          w={10}
-          h={10}
-          bg={`${color}.5`}
-          style={{
-            borderRadius: "50%",
-            boxShadow:
-              status === "reconnecting" ? `0 0 0 3px var(--mantine-color-${color}-2)` : undefined,
-          }}
-        />
-      </ActionIcon>
-    </Tooltip>
+    <HintedActionIcon variant="subtle" color="gray" size="lg" label={t(labelKey)}>
+      <Box
+        w={10}
+        h={10}
+        bg={`${color}.5`}
+        style={{
+          borderRadius: "50%",
+          boxShadow:
+            status === "reconnecting" ? `0 0 0 3px var(--mantine-color-${color}-2)` : undefined,
+        }}
+      />
+    </HintedActionIcon>
   );
 }
 
@@ -218,12 +301,15 @@ function HeaderSearch() {
 
   // 快捷入口: 已在片库页时隐藏, 避免与页内搜索重复
   if (location.pathname === "/meta" || location.pathname.startsWith("/meta/")) {
-    return <div style={{ flex: 1 }} />;
+    return <div style={{ flex: 1, minWidth: 0 }} />;
   }
 
   return (
-    <form
-      style={{ flex: 1, maxWidth: 480, marginLeft: 24 }}
+    // 窄屏顶栏放不下搜索框, 入口回落到片库页内搜索.
+    <Box
+      component="form"
+      visibleFrom="sm"
+      style={{ flex: 1, minWidth: 0, maxWidth: 480, marginLeft: 24 }}
       onSubmit={(e) => {
         e.preventDefault();
         const q = value.trim();
@@ -238,7 +324,7 @@ function HeaderSearch() {
         leftSection={<IconSearch size={16} />}
         radius="md"
       />
-    </form>
+    </Box>
   );
 }
 
@@ -258,12 +344,13 @@ function HeaderBrand() {
           <Title order={4}>{APP_NAME}</Title>
         </Group>
       </Link>
-      <VersionMenu />
+      {/* 窄屏顶栏只保留品牌与图标动作, 版本号在侧栏内呈现; 不加包装元素, 避免改变宽屏下的行内基线. */}
+      <VersionMenu visibleFrom="sm" />
     </Group>
   );
 }
 
-function GithubLink() {
+function GithubLink({ visibleFrom }: { visibleFrom?: "sm" }) {
   const { t } = useTranslation("common");
 
   return (
@@ -276,6 +363,7 @@ function GithubLink() {
         variant="subtle"
         color="gray"
         size="lg"
+        visibleFrom={visibleFrom}
         aria-label={t("about.github")}
       >
         <IconBrandGithub size={18} />
@@ -286,9 +374,10 @@ function GithubLink() {
 
 export function AppShellLayout(): ReactNode {
   const { t } = useTranslation("common");
-  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false);
+  const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false);
   const desktopCollapsed = useUIStore((s) => s.navbarCollapsed);
   const toggleDesktop = useUIStore((s) => s.toggleNavbar);
+  const shell = shellEnvironment();
 
   return (
     <AppShell
@@ -323,13 +412,20 @@ export function AppShellLayout(): ReactNode {
             <ConnectionIndicator />
             <ThemeToggle />
             <LanguageMenu />
-            <GithubLink />
+            <ClientSettingsLink available={shell != null} />
+            {/* 窄屏顶栏放不下外链, 该入口收进侧栏底部. */}
+            <GithubLink visibleFrom="sm" />
           </Group>
         </Group>
       </AppShell.Header>
 
       <AppShell.Navbar p="sm">
-        <ScrollArea style={{ flex: 1 }} offsetScrollbars>
+        <ScrollArea
+          style={{ flex: 1 }}
+          offsetScrollbars
+          // 侧栏滚到尽头时不许把滚动传给底下的页面 (触屏上尤其明显).
+          viewportProps={{ style: { overscrollBehavior: "contain" } }}
+        >
           {NAV_GROUPS.map((group) => (
             <div key={group.key} style={{ marginBottom: 16 }}>
               <Text
@@ -343,13 +439,23 @@ export function AppShellLayout(): ReactNode {
                 {t(group.labelKey)}
               </Text>
               {group.items.map((item) => (
-                <NavItemLink key={item.to} item={item} />
+                <NavItemLink key={item.to} item={item} onNavigate={closeMobile} />
               ))}
             </div>
           ))}
         </ScrollArea>
         <Divider mb="sm" />
-        <NavItemLink item={{ to: "/settings", labelKey: "nav.settings", icon: IconSettings }} />
+        <NavItemLink
+          item={{ to: "/settings", labelKey: "nav.settings", icon: IconSettings }}
+          onNavigate={closeMobile}
+        />
+        {/* 窄屏顶栏放不下版本与外链, 收进侧栏底部. */}
+        <Group hiddenFrom="sm" gap="xs" px="xs" pt="sm" wrap="nowrap">
+          <VersionMenu />
+          <Box ml="auto">
+            <GithubLink />
+          </Box>
+        </Group>
       </AppShell.Navbar>
 
       <AppShell.Main>

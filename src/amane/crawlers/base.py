@@ -6,75 +6,64 @@ from typing import TYPE_CHECKING
 import structlog
 
 from ..enums import ActorGender
-from ..plugins.models import SourceCapability
+from ..net.connectivity import ConnectivityOutcome
+from ..plugins.models import SourceCapability, SourceDescriptor, SourceTrait
 from .http import HttpClient
 
 if TYPE_CHECKING:
+    from ..aggregate.engine import CrawlerLike
     from ..config import SiteConfig
     from ..enums import SiteName
+    from .connectivity import ConnectivityProbe
     from .models import FetchOptions, MediaMetadata, SearchQuery
 
 
 @dataclass
 class RequestContext:
-    """合并爬虫默认值与用户配置后的最终请求配置."""
-
     base_url: str
-    """最终使用的 base URL (末尾无斜杠)."""
     cookies: dict[str, str]
-    """合并后的 cookies (类默认 + 用户配置)."""
 
 
 @dataclass
 class CrawlerProfile:
-    """爬虫配置概要, 用于构建限速器等组件."""
-
     name: SiteName | str
     base_url: str
-    """站点的默认基础 URL (末尾不带斜杠)."""
     urls: list[str] = field(default_factory=list)
-    """该爬虫可能访问的需限速的 URL 列表, 用于限速器匹配."""
     cookies: dict[str, str] = field(default_factory=dict)
-    """爬虫默认 cookies."""
     headers: dict[str, str] = field(default_factory=dict)
-    """爬虫默认请求头, 如 Accept-Language 用于绕过地域限制."""
+    # 该站静态资源校验同源 Referer 时置 True: 下载图片按 host 注入 ``https://{host}/``.
+    same_origin_referer: bool = False
+    # 空则影片爬虫视为 film_metadata; 演员爬虫必须显式声明 profile / image.
     capabilities: frozenset[SourceCapability] = field(default_factory=frozenset)
-    """来源能力. 空则影片爬虫视为 film_metadata; 演员爬虫必须显式声明 profile / image."""
-    multi_language: bool = False
-    """是否消费 FetchOptions.language (聚合展开 (site, lang) 节点)."""
+    # 行为开关: 引擎读到某个取值就改变调度或调用方式 (排段 / 多语言 / 文件指纹), 取值见 ``SourceTrait``.
+    # 与 capabilities (来源提供什么) 分开.
+    traits: frozenset[SourceTrait] = field(default_factory=frozenset)
     genders: frozenset[ActorGender] | None = None
-    """演员爬虫的性别覆盖; 影片爬虫为 None."""
-    uses_file_hash: bool = False
-    """True 时刮削前按需计算 oshash (Stash 指纹匹配). 默认不在扫描期算."""
 
     def effective_capabilities(self) -> frozenset[SourceCapability]:
         return self.capabilities or frozenset({SourceCapability.FILM_METADATA})
 
+    def to_descriptor(self) -> SourceDescriptor:
+        """引擎与配置读取的声明性事实只有这一个出口, 新增 profile 字段时同步此处."""
+        return SourceDescriptor(
+            id=str(self.name),
+            name=str(self.name),
+            version="builtin",
+            capabilities=frozenset(self.effective_capabilities()),
+            urls=(*self.urls, self.base_url),
+            traits=frozenset(str(trait) for trait in self.traits),
+        )
+
 
 class Crawler(ABC):
-    """
-    所有爬虫的基类.
+    """默认 ``_search`` → ``_scrape``. 无状态: SiteConfig 经方法参数注入, 不经构造函数.
 
-    公开接口只有一个方法: fetch(query, options) -> MediaMetadata | None
-
-    默认实现是 Template Method: _search() -> _scrape().
-    大部分爬虫只需实现 _search 和 _scrape.
-    特殊爬虫 (如 theporndb, official) 可直接 override fetch().
-
-    爬虫是无状态的: SiteConfig 通过方法参数注入而非构造函数.
-    FetchOptions 用于传递按次可变的选项 (如语言).
-
-    日志:
-        self.logger 提供 per-crawler 命名空间的 logger (amane.crawlers.{name}).
-        在 structlog pipeline 下, task_id 等上下文字段自动注入.
-        子类可直接使用 self.logger.debug/info/warning/error.
+    特殊源可直接 override ``fetch()``.
     """
 
     @classmethod
     @abstractmethod
-    def profile(cls) -> CrawlerProfile:
-        """返回该爬虫的配置概要."""
-        ...
+    def profile(cls) -> CrawlerProfile: ...
 
     def __init__(self, client: HttpClient, config: SiteConfig | None = None):
         self._profile = self.profile()
@@ -88,7 +77,6 @@ class Crawler(ABC):
         self._resolve_config()
 
     def _resolve_config(self):
-        """合并 CrawlerProfile 与 SiteConfig, 设置相应属性."""
         if self.config is None:
             return
 
@@ -100,7 +88,6 @@ class Crawler(ABC):
 
     @property
     def logger(self) -> structlog.stdlib.BoundLogger:
-        """Per-crawler 命名空间 logger (amane.crawlers.{name}), 懒加载."""
         try:
             return self._logger
         except AttributeError:
@@ -108,22 +95,6 @@ class Crawler(ABC):
             return self._logger
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """
-        根据查询条件搜索并抓取元数据.
-
-        默认实现: _search() 找到 URL, 然后 _scrape() 解析.
-        特殊爬虫可直接 override 此方法.
-
-        Template Method 内置日志: search/scrape 各阶段自动记录.
-        子类无需重复打日志, 除非有特殊信息.
-
-        Args:
-            query: 结构化搜索查询.
-            options: 按次可变选项 (如语言).
-
-        Returns:
-            成功返回 MediaMetadata, 失败返回 None.
-        """
         number = query.number
         lang = options.language if options else None
         t0 = time.monotonic()
@@ -142,12 +113,21 @@ class Crawler(ABC):
             self.logger.info("scrape ok", number=number, title=result.title, duration_s=elapsed)
         return result
 
-    @abstractmethod
-    async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """搜索详情页; 命中返回 URL, 未命中返回 None."""
-        ...
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """连通性自检: 缺省 GET ``base_url``, 用与刮削相同的视图 (渲染来源走浏览器, 其余走 HTTP).
+
+        实际入口与 ``base_url`` 不同的来源覆盖本方法 (探测真实 API 主机, 或按前置条件报 ``skipped``).
+        """
+        return await self.client.check(self.base_url, cookies=self.cookies, headers=self.headers)
 
     @abstractmethod
-    async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """获取详情页并解析元数据; 失败返回 None."""
-        ...
+    async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None: ...
+
+    @abstractmethod
+    async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None: ...
+
+
+if TYPE_CHECKING:
+    # 结构性协议没有运行期检查: 在此静态断言实例满足聚合引擎与连通性编排声明的协议.
+    _crawler_like: type[CrawlerLike] = Crawler
+    _connectivity_probe: type[ConnectivityProbe] = Crawler

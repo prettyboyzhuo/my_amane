@@ -1,8 +1,3 @@
-"""FastAPI 宿主入口 - create_app + lifespan 胶水.
-
-进程编排在 ``amane.app.bootstrap``; 此处只把 ``AppSession.runtime`` 挂到 ``app.state``.
-"""
-
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -23,7 +18,7 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """挂接进程会话到 FastAPI ``app.state``, 退出时 ``aclose``."""
+    """进程编排在 ``amane.app.bootstrap``; 此处把 ``AppSession.runtime`` 写入 ``app.state``, 退出时 ``aclose``."""
     session = await start_app()
     app.state.runtime = session.runtime
     try:
@@ -33,12 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 def generate_operation_id(route: APIRoute) -> str:
-    """用路由函数名作为 operation ID, 避免 FastAPI 默认的冗长命名."""
+    """使用路由函数名, 避免 FastAPI 默认的冗长 operation ID."""
     return route.name
 
 
 def create_app() -> FastAPI:
-    """创建带有生命周期管理的 FastAPI 应用"""
     app = FastAPI(
         title="Amane API",
         version=get_version(),
@@ -59,6 +53,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # 最后注册 LoggingMiddleware 使其位于最外层, 可正确记录 TokenAuthMiddleware 等内层自定义中间件的异常
+    # 最后注册 LoggingMiddleware, 使其位于最外层, 才能记录内层自定义中间件的异常
     app.add_middleware(LoggingMiddleware)
     return app

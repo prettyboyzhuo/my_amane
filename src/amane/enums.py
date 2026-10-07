@@ -5,6 +5,7 @@ class SiteName(StrEnum):
     """爬虫站点名称 (影片与演员源共用)."""
 
     AIRAV = "airav"
+    AVBASE = "avbase"
     AVSOX = "avsox"
     DAHLIA = "dahlia"
     DMM = "dmm"
@@ -33,12 +34,33 @@ class SiteName(StrEnum):
 
 
 class Language(StrEnum):
-    """支持的语言代码."""
-
     ZH_CN = "zh_cn"
     ZH_TW = "zh_tw"
     JP = "jp"
     EN = "en"
+
+
+# 浏览器渲染后端; OFF 表示不走浏览器, 来源可经 SiteConfig.browser_backend 覆盖.
+# 枚举 docstring 会进入 JSON schema 并作为前端无翻译时的兜底描述, 内部约定不要写在 docstring.
+class BrowserBackendName(StrEnum):
+    OFF = "off"
+    PATCHRIGHT = "patchright"
+    CAMOUFOX = "camoufox"
+    SOLVER = "solver"
+
+
+# 来源的浏览器使用策略: ALWAYS 一律渲染, OFF 一律直连, AUTO 直连遇挑战后切换.
+class BrowserMode(StrEnum):
+    OFF = "off"
+    AUTO = "auto"
+    ALWAYS = "always"
+
+
+# 大模型上游协议: chat = OpenAI Chat Completions, response = OpenAI Responses, anthropic = Anthropic Messages.
+class ApiType(StrEnum):
+    CHAT = "chat"
+    RESPONSE = "response"
+    ANTHROPIC = "anthropic"
 
 
 class ActorGender(StrEnum):
@@ -50,7 +72,7 @@ class ActorGender(StrEnum):
 
 
 class MoveMode(StrEnum):
-    """整理时把源文件放到模板路径的方式."""
+    """整理时将源文件写入模板路径的方式."""
 
     MOVE = "move"
     COPY = "copy"
@@ -73,8 +95,18 @@ class LibraryAutomation(StrEnum):
     SCRAPE = "scrape"
 
 
+class LibraryIngest(StrEnum):
+    """媒体库文件发现通道. automation=none 时两边都不收事件."""
+
+    NATIVE = "native"
+    """操作系统文件系统事件 (watchdog Observer / 轮询)."""
+
+    CLOUDDRIVE = "clouddrive"
+    """CloudDrive file_system_watcher webhook; 不 schedule Observer."""
+
+
 class DownloadableResource(StrEnum):
-    """影片附属资源类型: 刮削进 Resource, 整理时按库配置复制到库路径."""
+    """影片附属资源类型: 刮削写入 Resource, 整理时按库配置复制到库路径."""
 
     thumb = "thumb"
     poster = "poster"
@@ -83,8 +115,6 @@ class DownloadableResource(StrEnum):
 
 
 class MetadataField(StrEnum):
-    """所有可配置优先级的元数据字段."""
-
     TITLE = "title"
     PLOT = "plot"
     ACTORS = "actors"
@@ -100,6 +130,22 @@ class MetadataField(StrEnum):
     TRAILER_URLS = "trailer_urls"
     EXTRAFANART = "extrafanart"
     SCORE = "score"
+
+
+class ActorField(StrEnum):
+    """演员人物档案的可锁字段; 取值与 Actor 列名同形."""
+
+    GENDER = "gender"
+    BIRTHDAY = "birthday"
+    BIRTHPLACE = "birthplace"
+    HEIGHT = "height"
+    BUST = "bust"
+    WAIST = "waist"
+    HIP = "hip"
+    CUP = "cup"
+    OVERVIEW = "overview"
+    TAGLINE = "tagline"
+    IMAGE_URLS = "image_urls"
 
 
 class WatermarkKind(StrEnum):

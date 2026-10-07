@@ -1,22 +1,27 @@
-"""ThePornDB 爬虫 - Stash GraphQL API + oshash 匹配."""
+from typing import TYPE_CHECKING, override
 
-from typing import TYPE_CHECKING
-
-from ...enums import SiteName
+from ...enums import ActorGender, SiteName
+from ...net.connectivity import ConnectivityOutcome, SkipReason, assess_response
+from ...net.errors import FailureReason, RequestError
+from ...plugins.models import SourceTrait
 from ..base import Crawler, CrawlerProfile
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, FilmActor, MediaMetadata, SearchQuery
+
+_PERFORMER_GENDER: dict[str, ActorGender] = {
+    "FEMALE": ActorGender.FEMALE,
+    "MALE": ActorGender.MALE,
+}
 
 if TYPE_CHECKING:
     from ...parsing.file_info import ContentType
 
-# GraphQL 查询模板 - searchScene 返回完整的场景数据
 _SEARCH_QUERY = """
 query Search($term: String!) {
   searchScene(term: $term) {
     id title code date duration director details
     studio { name }
     tags { name }
-    performers { as performer { name } }
+    performers { as performer { name gender } }
     images { url }
   }
 }"""
@@ -27,7 +32,7 @@ query Find($hash: String!) {
     id title code date duration director details
     studio { name }
     tags { name }
-    performers { as performer { name } }
+    performers { as performer { name gender } }
     images { url }
   }
 }"""
@@ -38,12 +43,11 @@ query FindByID($id: ID!) {
     id title code date duration director details
     studio { name }
     tags { name }
-    performers { as performer { name } }
+    performers { as performer { name gender } }
     images { url }
   }
 }"""
 
-# content_type → GraphQL type 参数映射
 _TYPE_FILTER: dict[str, str] = {
     "censored": "JAV",
     "uncensored": "Scene",
@@ -55,18 +59,52 @@ _TYPE_FILTER: dict[str, str] = {
 
 
 class ThePornDBCrawler(Crawler):
-    """theporndb.net Stash GraphQL 爬虫.
-
-    使用通用 Stash-box 兼容 GraphQL 接口, 可访问 theporndb 或其他 Stash 实例.
-    content_type → GraphQL ?type= 参数:
-      censored / hentai → JAV
-      uncensored / western → Scene
-      null → 不加 filter (搜索所有类型)
-    """
+    """Stash-box GraphQL. ``content_type`` 映射到 ``?type=``; 缺省不加 filter."""
 
     @classmethod
     def profile(cls) -> CrawlerProfile:
-        return CrawlerProfile(name=SiteName.THEPORNDB, base_url="https://theporndb.net/graphql", uses_file_hash=True)
+        return CrawlerProfile(
+            name=SiteName.THEPORNDB,
+            base_url="https://theporndb.net/graphql",
+            traits=frozenset({SourceTrait.USES_FILE_HASH}),
+        )
+
+    @override
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """真发一次 GraphQL 请求: 本源只有带 token 才会请求, 探测必须同样验证凭据与连通性.
+
+        查一个不存在的 id: 应答便宜, 且能区分「token 被拒」与「站点不可达」. 地址经 ``_gql_url``
+        取: ``?type=`` 是每次请求的过滤条件, 探测验证的是可达性与凭据, 不加该条件.
+        """
+        token = self.config.api_token if self.config else None
+        if not token:
+            return ConnectivityOutcome.skipped(SkipReason.MISSING_CREDENTIAL, "api_token")
+        url = self._gql_url(None)
+        try:
+            resp = await self.client.web_client.request(
+                "POST",
+                url,
+                json={"query": _FIND_BY_ID_QUERY, "variables": {"id": "0"}},
+                headers={"Authorization": f"Bearer {token}"},
+                max_attempts=1,
+            )
+        except RequestError as exc:
+            return ConnectivityOutcome.failed(exc.reason, url=url, http_status=exc.http_status)
+
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict) and payload.get("errors") and not payload.get("data"):
+            # HTTP 状态正常而在 GraphQL 层失败: 原因不写在状态码上. 上游的错误文本是英文原文, 截断后作为
+            # 可行动信息报给用户 (不含 Authorization 头), 完整应答写入日志.
+            errors = payload["errors"]
+            self.logger.warning("theporndb graphql errors", errors=errors)
+            message = ""
+            if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                message = str(errors[0].get("message") or "")
+            return ConnectivityOutcome.failed(FailureReason.API_ERROR, url=url, detail=message[:200] or None)
+        return assess_response(url, resp)
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         token = self.config.api_token if self.config else None
@@ -76,7 +114,7 @@ class ThePornDBCrawler(Crawler):
         headers = {"Authorization": f"Bearer {token}"}
         gql_url = self._gql_url(query.content_type)
 
-        # 优先用 oshash 精确匹配
+        # 优先 oshash 精确匹配.
         if query.file_hash:
             data = await self.client.post_json(
                 gql_url,
@@ -91,7 +129,7 @@ class ThePornDBCrawler(Crawler):
                 if results:
                     return self._scene_to_metadata(results[0])
 
-        # 文本搜索
+        # 文本搜索.
         data = await self.client.post_json(
             gql_url,
             json={
@@ -108,7 +146,7 @@ class ThePornDBCrawler(Crawler):
         if not results:
             return None
 
-        # 选取 code 最匹配的 (精确匹配优先)
+        # 精确匹配 code 优先.
         number_lower = query.number.lower().replace("-", "")
         best = min(
             results,
@@ -119,10 +157,7 @@ class ThePornDBCrawler(Crawler):
         )
         return self._scene_to_metadata(best)
 
-    # --- 抽象方法实现 (保持测试框架兼容) ---
-
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """搜索并返回一个假的 internal URL (由 _scrape 处理)."""
         token = self.config.api_token if self.config else None
         if not token:
             return None
@@ -130,7 +165,7 @@ class ThePornDBCrawler(Crawler):
         headers = {"Authorization": f"Bearer {token}"}
         gql_url = self._gql_url(query.content_type)
 
-        # hash 查找
+        # 优先 oshash 精确匹配.
         if query.file_hash:
             data = await self.client.post_json(
                 gql_url,
@@ -144,7 +179,7 @@ class ThePornDBCrawler(Crawler):
             if results:
                 return f"gql://scene/{results[0]['id']}"
 
-        # 文本搜索
+        # 文本搜索.
         data = await self.client.post_json(
             gql_url,
             json={
@@ -156,6 +191,7 @@ class ThePornDBCrawler(Crawler):
 
         results = (data or {}).get("data", {}).get("searchScene", [])
         if results:
+            # 精确匹配 code 优先.
             number_lower = query.number.lower().replace("-", "")
             best = min(results, key=lambda s: (0 if s.get("code", "").lower().replace("-", "") == number_lower else 1,))
             return f"gql://scene/{best['id']}"
@@ -163,7 +199,6 @@ class ThePornDBCrawler(Crawler):
         return None
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """从 gql://scene/{id} URL 获取场景详情."""
         token = self.config.api_token if self.config else None
         if not token or not url.startswith("gql://scene/"):
             return None
@@ -185,10 +220,7 @@ class ThePornDBCrawler(Crawler):
             return None
         return self._scene_to_metadata(scene)
 
-    # --- 工具方法 ---
-
     def _gql_url(self, content_type: ContentType | None) -> str:
-        """根据 ContentType 构造带 type filter 的 GraphQL URL."""
         if content_type:
             gql_type = _TYPE_FILTER.get(str(content_type))
             if gql_type:
@@ -197,19 +229,20 @@ class ThePornDBCrawler(Crawler):
 
     @staticmethod
     def _scene_to_metadata(scene: dict) -> MediaMetadata:
-        """将 GraphQL Scene 响应转换为 MediaMetadata."""
         number = scene.get("code") or scene.get("title", "")
 
         studio = None
         if isinstance(scene.get("studio"), dict):
             studio = scene["studio"].get("name")
 
-        actors = []
+        actors: list[FilmActor] = []
         for pa in scene.get("performers", []) or []:
             perf = (pa or {}).get("performer", {}) or {}
             name = perf.get("name") or pa.get("as", "")
-            if name:
-                actors.append(name)
+            if not name:
+                continue
+            gender = _PERFORMER_GENDER.get(str(perf.get("gender") or ""))
+            actors.append(FilmActor(name=name, gender=gender or ActorGender.UNKNOWN))
 
         tags = [t.get("name", "") for t in (scene.get("tags") or []) if t.get("name")]
 

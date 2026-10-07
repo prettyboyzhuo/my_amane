@@ -41,7 +41,9 @@ class FakeCrawler(Crawler):
 
 
 def _make_handler(repo, actors: list[str], *, auto_scrape: bool) -> ScrapeHandler:
-    metadata = MediaMetadata(number="MIDV-123", title="Test Title", actors=actors, studio="Studio X")
+    metadata = MediaMetadata.model_validate(
+        {"number": "MIDV-123", "title": "Test Title", "actors": actors, "studio": "Studio X"}
+    )
     factory = AsyncMock(spec=CrawlerFactory)
     factory.get_crawlers.return_value = {"javdb": FakeCrawler(metadata)}
     cfg = HotSettings(
@@ -195,4 +197,6 @@ async def test_second_scrape_reuses_active_actor_task(repo: Repository, tmp_path
 
     tasks = await _list_actor_tasks(repo)
     assert len(tasks) == 1
-    await worker.stop()
+    worker.retire()
+    await worker.wait_stopped()
+    await worker.shutdown_active()

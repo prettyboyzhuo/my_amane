@@ -1,34 +1,43 @@
 import {
   ActionIcon,
   Badge,
+  Box,
   Button,
   Checkbox,
   Group,
   Menu,
   Modal,
+  MultiSelect,
   rem,
   Skeleton,
   Stack,
   Table,
   Text,
   TextInput,
+  type MantineBreakpoint,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconArrowMerge,
+  IconDots,
   IconEraser,
   IconPencil,
   IconRefresh,
+  IconTag,
   IconTrash,
   IconUser,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { ParseKeys } from "i18next";
 import { useTranslation } from "react-i18next";
-import { listActorsQueryKey } from "@/client/@tanstack/react-query.gen";
-import { scrapeActor, updateActor } from "@/client/sdk.gen";
+import {
+  batchActorUserTagsMutation,
+  listActorsQueryKey,
+  listFacetsOptions,
+} from "@/client/@tanstack/react-query.gen";
+import { clearActorPerson, scrapeActor, updateActor } from "@/client/sdk.gen";
 import type {
   ActorGender,
   ActorResponse,
@@ -36,6 +45,7 @@ import type {
   CacheKind,
   SortOrder,
 } from "@/client/types.gen";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { ListToolbar } from "@/components/common/list-toolbar";
 import { ResizableTh, SortableTh } from "@/components/common/sortable-th";
 import { SelectionBar } from "@/components/common/selection-bar";
@@ -43,13 +53,15 @@ import { FacetRulesPanel } from "./facet-rules-panel";
 import { useFacetIdentityActions } from "@/hooks/use-facet-identity-actions";
 import { useIdSelection } from "@/hooks/use-id-selection";
 import { useResizableColumns } from "@/hooks/use-resizable-columns";
-import { CLEARED_ACTOR_PERSON_PATCH } from "@/lib/actors/person";
+import { extractErrorMessage } from "@/lib/api-error";
 import { confirm } from "@/lib/confirm";
+import { USER_TAG_FACET_LIST } from "@/lib/facets";
 import { exhaustiveRecord } from "@/lib/exhaustive";
 import { ageFromBirthday } from "@/lib/format-birthday";
 import { proxyImageUrl } from "@/lib/utils";
 import { ProxyImage } from "@/components/media/proxy-image";
 import { type ActorTableColumnKey, useUIStore } from "@/stores/ui";
+import classes from "./actor-table.module.css";
 
 /** 表头可排序列 = ActorSortField 全集 (与 SortMenu 对齐). */
 const SORTABLE_COLUMNS = [
@@ -82,6 +94,25 @@ const DEFAULT_COLUMN_WIDTHS = {
 } as const satisfies Record<ActorTableColumnKey, number>;
 
 const CELL_OVERFLOW = { overflow: "hidden", maxWidth: 0 } as const;
+
+/**
+ * 各列的隐藏断点: 可见列宽之和超出容器时表格横向滚动, 名称列随之移出首屏.
+ * 该映射同时决定表头与单元格的显隐, 任一处缺失即列错位.
+ */
+const COLUMN_VISIBLE_FROM: Partial<Record<ActorTableColumnKey, MantineBreakpoint>> = {
+  bust: "lg",
+  waist: "lg",
+  hip: "lg",
+  cup: "lg",
+  has_image: "lg",
+  updated_at: "lg",
+  birthday: "md",
+  height: "md",
+  count: "xs",
+};
+
+/** 头像列 (表头无标签) 与 count 列的信息价值低于名称与性别, 在 xs 以下隐藏. */
+const PHOTO_VISIBLE_FROM: MantineBreakpoint = "xs";
 
 type MetadataKey = ParseKeys<"metadata">;
 
@@ -180,6 +211,34 @@ export function ActorTable({
   const [batchScraping, setBatchScraping] = useState(false);
   const [batchGendering, setBatchGendering] = useState(false);
   const [batchClearing, setBatchClearing] = useState(false);
+  const [tagModalOpen, setTagModalOpen] = useState(false);
+  const [tagIds, setTagIds] = useState<string[]>([]);
+
+  const { data: userTags } = useQuery(listFacetsOptions(USER_TAG_FACET_LIST));
+  const tagOptions = (userTags?.items ?? []).map((tag) => ({
+    value: String(tag.id),
+    label: tag.name,
+  }));
+
+  const batchTags = useMutation({
+    ...batchActorUserTagsMutation(),
+    onSuccess: (_res, variables) => {
+      const attached = variables.body.action === "attach";
+      notifications.show({
+        message: attached ? t("common:toast.userTagAttached") : t("common:toast.userTagDetached"),
+        color: "blue",
+      });
+      setTagModalOpen(false);
+      setTagIds([]);
+      clear();
+      void queryClient.invalidateQueries({ queryKey: listActorsQueryKey() });
+    },
+    onError: (err) =>
+      notifications.show({
+        message: extractErrorMessage(err, t("common:toast.operationFailed")),
+        color: "red",
+      }),
+  });
 
   async function scrapeIds(ids: number[], useCache: CacheKind[]) {
     if (ids.length === 0) return;
@@ -268,13 +327,7 @@ export function ActorTable({
     if (!ok) return;
     setBatchClearing(true);
     const results = await Promise.allSettled(
-      ids.map((id) =>
-        updateActor({
-          path: { actor_id: id },
-          body: CLEARED_ACTOR_PERSON_PATCH,
-          throwOnError: true,
-        }),
-      ),
+      ids.map((id) => clearActorPerson({ path: { actor_id: id }, throwOnError: true })),
     );
     setBatchClearing(false);
     const failed = results.filter((r) => r.status === "rejected").length;
@@ -301,7 +354,8 @@ export function ActorTable({
   const effectiveSortBy = sortBy ?? "name";
   const effectiveOrder = order ?? "asc";
   const allSelected = isAllSelected(pageIds);
-  const busy = batchScraping || batchGendering || batchClearing || identity.busy;
+  const busy =
+    batchScraping || batchGendering || batchClearing || identity.busy || batchTags.isPending;
 
   function handlePageChange(p: number) {
     clear();
@@ -391,6 +445,16 @@ export function ActorTable({
             <Button
               size="xs"
               variant="light"
+              leftSection={<IconTag size={14} />}
+              loading={batchTags.isPending}
+              disabled={selected.size === 0}
+              onClick={() => setTagModalOpen(true)}
+            >
+              {t("detail.userTags")}
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
               leftSection={<IconEraser size={14} />}
               loading={busy}
               disabled={selected.size === 0}
@@ -408,14 +472,14 @@ export function ActorTable({
           verticalSpacing="sm"
           layout="fixed"
           w="100%"
-          style={{ minWidth: 1100 }}
+          className={classes.table}
         >
           <Table.Thead>
             <Table.Tr>
               <Table.Th w={36}>
                 <Checkbox checked={allSelected} onChange={() => toggleAll(pageIds)} />
               </Table.Th>
-              <Table.Th w={48} />
+              <Table.Th w={48} visibleFrom={PHOTO_VISIBLE_FROM} />
               <SortableTh
                 field="name"
                 label={t(SORT_COLUMN_I18N_KEY.name)}
@@ -437,10 +501,11 @@ export function ActorTable({
                   order={effectiveOrder}
                   onSort={onSort}
                   w={columnWidth(field)}
+                  visibleFrom={COLUMN_VISIBLE_FROM[field]}
                   resizeHandle={getResizeHandleProps(field)}
                 />
               ))}
-              <Table.Th ta="right" w={152}>
+              <Table.Th ta="right" className={classes.actionsColumn}>
                 {t("columns.actions")}
               </Table.Th>
             </Table.Tr>
@@ -454,7 +519,7 @@ export function ActorTable({
                 <Table.Td>
                   <Checkbox checked={selected.has(actor.id)} onChange={() => toggleOne(actor.id)} />
                 </Table.Td>
-                <Table.Td>
+                <Table.Td visibleFrom={PHOTO_VISIBLE_FROM}>
                   {actor.image_urls?.[0] ? (
                     <ProxyImage
                       src={proxyImageUrl(actor.image_urls[0]) ?? actor.image_urls[0]}
@@ -515,7 +580,11 @@ export function ActorTable({
                       ? t("actors.birthdayWithAge", { date: raw, age })
                       : raw;
                   return (
-                    <Table.Td key={field} style={CELL_OVERFLOW}>
+                    <Table.Td
+                      key={field}
+                      style={CELL_OVERFLOW}
+                      visibleFrom={COLUMN_VISIBLE_FROM[field]}
+                    >
                       {field === "count" ? (
                         <Badge variant="light">{actor.count}</Badge>
                       ) : (
@@ -527,39 +596,81 @@ export function ActorTable({
                   );
                 })}
                 <Table.Td>
-                  <Group gap={4} justify="flex-end" wrap="nowrap">
-                    <ActionIcon
+                  {/* 窄屏动作列只容得下一个按钮, 四个动作移入菜单. */}
+                  <Group gap={4} justify="flex-end" wrap="nowrap" visibleFrom="sm">
+                    <HintedActionIcon
                       variant="subtle"
-                      title={t("common:actions.edit")}
+                      label={t("common:actions.edit")}
                       onClick={() => identity.openRename({ id: actor.id, name: actor.name })}
                     >
                       <IconPencil size={16} />
-                    </ActionIcon>
-                    <ActionIcon
+                    </HintedActionIcon>
+                    <HintedActionIcon
                       variant="subtle"
-                      title={t("manage.merge")}
+                      label={t("manage.merge")}
                       disabled={identity.mergePending}
                       onClick={() => void identity.openMerge(actor.id, selected)}
                     >
                       <IconArrowMerge size={16} />
-                    </ActionIcon>
-                    <ActionIcon
+                    </HintedActionIcon>
+                    <HintedActionIcon
                       variant="subtle"
-                      title={t("actors.clearPerson")}
+                      label={t("actors.clearPerson")}
                       disabled={batchClearing}
                       onClick={() => void handleClearPerson([actor.id], { name: actor.name })}
                     >
                       <IconEraser size={16} />
-                    </ActionIcon>
-                    <ActionIcon
+                    </HintedActionIcon>
+                    <HintedActionIcon
                       variant="subtle"
                       color="red"
-                      title={t("common:actions.delete")}
+                      label={t("common:actions.delete")}
                       onClick={() => void identity.openDelete({ id: actor.id, name: actor.name })}
                     >
                       <IconTrash size={16} />
-                    </ActionIcon>
+                    </HintedActionIcon>
                   </Group>
+                  {/* Menu 不接受 visibleFrom / hiddenFrom, 显隐由外层 Box 承担. */}
+                  <Box hiddenFrom="sm" style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <Menu position="bottom-end" withinPortal>
+                      <Menu.Target>
+                        <ActionIcon size="sm" variant="subtle" aria-label={t("columns.actions")}>
+                          <IconDots size={14} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<IconPencil size={14} />}
+                          onClick={() => identity.openRename({ id: actor.id, name: actor.name })}
+                        >
+                          {t("common:actions.edit")}
+                        </Menu.Item>
+                        <Menu.Item
+                          leftSection={<IconArrowMerge size={14} />}
+                          disabled={identity.mergePending}
+                          onClick={() => void identity.openMerge(actor.id, selected)}
+                        >
+                          {t("manage.merge")}
+                        </Menu.Item>
+                        <Menu.Item
+                          leftSection={<IconEraser size={14} />}
+                          disabled={batchClearing}
+                          onClick={() => void handleClearPerson([actor.id], { name: actor.name })}
+                        >
+                          {t("actors.clearPerson")}
+                        </Menu.Item>
+                        <Menu.Item
+                          color="red"
+                          leftSection={<IconTrash size={14} />}
+                          onClick={() =>
+                            void identity.openDelete({ id: actor.id, name: actor.name })
+                          }
+                        >
+                          {t("common:actions.delete")}
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Box>
                 </Table.Td>
               </Table.Tr>
             ))}
@@ -570,7 +681,7 @@ export function ActorTable({
                   <Table.Td>
                     <Skeleton h={16} w={16} />
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td visibleFrom={PHOTO_VISIBLE_FROM}>
                     <Skeleton h={40} w={40} radius="sm" />
                   </Table.Td>
                   <Table.Td>
@@ -580,7 +691,7 @@ export function ActorTable({
                     <Skeleton h={14} w={48} />
                   </Table.Td>
                   {SORTABLE_COLUMNS.filter((f) => f !== "name").map((field) => (
-                    <Table.Td key={field}>
+                    <Table.Td key={field} visibleFrom={COLUMN_VISIBLE_FROM[field]}>
                       <Skeleton h={14} w="60%" />
                     </Table.Td>
                   ))}
@@ -596,6 +707,58 @@ export function ActorTable({
           </Text>
         )}
       </ListToolbar>
+
+      <Modal
+        opened={tagModalOpen}
+        onClose={() => setTagModalOpen(false)}
+        title={t("detail.userTags")}
+        centered
+      >
+        <Stack gap="md">
+          <MultiSelect
+            data={tagOptions}
+            value={tagIds}
+            onChange={setTagIds}
+            searchable
+            placeholder={t("detail.selectUserTag")}
+          />
+          <Group justify="flex-end">
+            <Button
+              variant="light"
+              disabled={tagIds.length === 0}
+              loading={batchTags.isPending}
+              onClick={() =>
+                batchTags.mutate({
+                  body: {
+                    ids: selectedIds,
+                    user_tag_ids: tagIds.map(Number),
+                    action: "attach",
+                  },
+                })
+              }
+            >
+              {t("common:actions.add")}
+            </Button>
+            <Button
+              variant="light"
+              color="red"
+              disabled={tagIds.length === 0}
+              loading={batchTags.isPending}
+              onClick={() =>
+                batchTags.mutate({
+                  body: {
+                    ids: selectedIds,
+                    user_tag_ids: tagIds.map(Number),
+                    action: "detach",
+                  },
+                })
+              }
+            >
+              {t("common:actions.remove")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={identity.renameTarget != null}

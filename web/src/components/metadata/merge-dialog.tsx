@@ -15,16 +15,18 @@ import {
 import { notifications } from "@mantine/notifications";
 import { IconArrowBackUp, IconExternalLink } from "@tabler/icons-react";
 import { useMutation } from "@tanstack/react-query";
-import { useMemo, type CSSProperties, type ReactNode } from "react";
-import type { ParseKeys } from "i18next";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { mergeMetadataMutation } from "@/client/@tanstack/react-query.gen";
-import type { MetadataField, MetadataResponse } from "@/client/types.gen";
+import type { ActorGender, MetadataField, MetadataResponse } from "@/client/types.gen";
 import { FanartStrip } from "@/components/media/fanart-lightbox";
+import { GenderMark } from "@/components/media/gender-mark";
 import { useResettingState } from "@/hooks/use-resetting-state";
+import { ACTOR_GENDERS } from "@/lib/actors/browse";
 import { extractErrorMessage } from "@/lib/api-error";
-import { assertExhaustive, exhaustiveRecord, isOneOf } from "@/lib/exhaustive";
-import { isRecord } from "@/lib/utils";
+import { assertExhaustive, isOneOf } from "@/lib/exhaustive";
+import { FIELD_LABEL_KEY } from "@/lib/media/metadata-fields";
+import { isRecord, proxyImageUrl } from "@/lib/utils";
 
 /** Scalar fields - point-pick by equal value groups. */
 const TEXT_FIELDS = [
@@ -55,27 +57,9 @@ const SCORE_FIELD = "score" as const satisfies MetadataField;
 /** 分区并集必须覆盖 `MetadataField` 全集, 新增字段时此处编译失败. */
 assertExhaustive<MetadataField>()([...TEXT_FIELDS, ...MEDIA_FIELDS, SCORE_FIELD] as const);
 
-/** MetadataField → metadata 命名空间下的字段标签 key. */
-const FIELD_LABEL_KEY = exhaustiveRecord<MetadataField>()({
-  title: "detail.fields.title",
-  plot: "detail.fields.plot",
-  actors: "detail.fields.actors",
-  directors: "detail.fields.directors",
-  tags: "detail.fields.tags",
-  series: "detail.fields.series",
-  release: "detail.fields.release",
-  runtime: "detail.fields.runtime",
-  publisher: "detail.fields.publisher",
-  studio: "detail.fields.studio",
-  poster_urls: "detail.fields.poster",
-  thumb_urls: "detail.fields.thumb",
-  trailer_urls: "detail.fields.trailer",
-  extrafanart: "detail.fields.extrafanart",
-  score: "detail.fields.score",
-} as const satisfies Record<MetadataField, ParseKeys<"metadata">>);
-
 type TextField = (typeof TEXT_FIELDS)[number];
 type MediaField = (typeof MEDIA_FIELDS)[number];
+type FilmActorValue = { name: string; gender: ActorGender };
 
 function isTextField(field: string): field is TextField {
   return isOneOf(TEXT_FIELDS, field);
@@ -85,18 +69,61 @@ function isMediaField(field: string): field is MediaField {
   return isOneOf(MEDIA_FIELDS, field);
 }
 
-function formatValue(value: unknown): string {
-  if (value == null) return "—";
-  if (Array.isArray(value)) return value.map(String).join(", ");
+/** raw.actors 为 FilmActor (`name` + `gender`) 或展示名字符串; 缺省性别视为 unknown. */
+function asFilmActor(value: unknown): FilmActorValue | undefined {
+  if (typeof value === "string" && value.length > 0) {
+    return { name: value, gender: "unknown" };
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  if (!("name" in value) || typeof value.name !== "string" || value.name.length === 0) {
+    return undefined;
+  }
+  const gender =
+    "gender" in value && isOneOf(ACTOR_GENDERS, value.gender) ? value.gender : "unknown";
+  return { name: value.name, gender };
+}
+
+function formatItem(value: unknown): string {
+  const actor = asFilmActor(value);
+  if (actor) return actor.name;
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
-function sameValue(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((v, i) => v === b[i]);
+function formatValue(value: unknown): string {
+  if (value == null) return "—";
+  if (Array.isArray(value)) {
+    const parts = value.map(formatItem).filter((s) => s.length > 0);
+    return parts.length > 0 ? parts.join(", ") : "—";
   }
+  return formatItem(value) || "—";
+}
+
+function filmActorsFromRaw(value: unknown): FilmActorValue[] {
+  if (!Array.isArray(value)) {
+    const one = asFilmActor(value);
+    return one ? [one] : [];
+  }
+  const out: FilmActorValue[] = [];
+  for (const item of value) {
+    const actor = asFilmActor(item);
+    if (actor) out.push(actor);
+  }
+  return out;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => sameValue(v, b[i]));
+  }
+  const fa = asFilmActor(a);
+  const fb = asFilmActor(b);
+  if (fa && fb) return fa.name === fb.name && fa.gender === fb.gender;
   return false;
 }
 
@@ -129,7 +156,7 @@ function currentDbMediaUrls(metadata: MetadataResponse, field: MediaField): stri
 /**
  * Infer which raw source currently backs a media field.
  * - extrafanart: first key of DB `extrafanart_urls`
- * - list URL fields: exact match against raw URL lists (fails after materialize → undefined)
+ * - list URL fields: 聚合值是各来源的并集, 首位即实际生效的那张, 据此定位来源.
  */
 function inferMediaSource(
   metadata: MetadataResponse,
@@ -146,8 +173,8 @@ function inferMediaSource(
 
   const dbUrls = currentDbMediaUrls(metadata, field);
   if (dbUrls.length === 0) return undefined;
-  const match = entries.find((e) => sameValue(urlsFromRaw(e.value), dbUrls));
-  return match?.source;
+  const applied = dbUrls[0];
+  return entries.find((e) => urlsFromRaw(e.value).includes(applied))?.source;
 }
 
 /** Infer score source from DB `scores` dict (first key = display priority). */
@@ -164,6 +191,71 @@ function inferScoreSource(metadata: MetadataResponse, entries: FieldEntry[]): st
 interface FieldEntry {
   source: string;
   value: unknown;
+}
+
+interface ImageProbe {
+  reachable: boolean;
+  pixels: number;
+}
+
+type ImageProbes = Record<string, ImageProbe>;
+
+function useImageProbes(metadata: MetadataResponse, enabled: boolean): ImageProbes {
+  const [probes, setProbes] = useState<ImageProbes>({});
+  const imageUrls = useMemo(() => {
+    const urls = new Set<string>();
+    for (const data of Object.values(metadata.raw ?? {})) {
+      if (!isRecord(data)) continue;
+      for (const field of MEDIA_FIELDS) {
+        for (const url of urlsFromRaw(data[field])) urls.add(url);
+      }
+    }
+    return [...urls];
+  }, [metadata.raw]);
+
+  useEffect(() => {
+    if (!enabled || imageUrls.length === 0) return;
+    let cancelled = false;
+    for (const url of imageUrls) {
+      const image = new Image();
+      const done = (probe: ImageProbe) => {
+        if (cancelled) return;
+        setProbes((previous) => ({ ...previous, [url]: probe }));
+      };
+      image.addEventListener(
+        "load",
+        () =>
+          done({
+            reachable: image.naturalWidth > 0 && image.naturalHeight > 0,
+            pixels: image.naturalWidth * image.naturalHeight,
+          }),
+        { once: true },
+      );
+      image.addEventListener("error", () => done({ reachable: false, pixels: 0 }), { once: true });
+      image.src = proxyImageUrl(url) ?? url;
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, imageUrls]);
+
+  return probes;
+}
+
+function sortMediaEntries(entries: FieldEntry[], probes: ImageProbes): FieldEntry[] {
+  return entries
+    .map((entry, index) => {
+      const urls = urlsFromRaw(entry.value);
+      const reach = urls.some((url) => probes[url]?.reachable === true)
+        ? 0
+        : urls.every((url) => probes[url]?.reachable === false)
+          ? 2
+          : 1;
+      const pixels = Math.max(0, ...urls.map((url) => probes[url]?.pixels ?? 0));
+      return { entry, index, reach, pixels };
+    })
+    .toSorted((a, b) => a.reach - b.reach || b.pixels - a.pixels || a.index - b.index)
+    .map(({ entry }) => entry);
 }
 
 interface MergeDialogProps {
@@ -183,6 +275,7 @@ export function MergeDialog({ metadata, opened, onClose, onMerged }: MergeDialog
     (): Record<string, string> => ({}),
     opened ? metadata.id : "closed",
   );
+  const imageProbes = useImageProbes(metadata, opened);
 
   const { textFields, mediaFields, scoreEntries, fieldData, originalSources, mediaSources } =
     useMemo(() => {
@@ -329,7 +422,14 @@ export function MergeDialog({ metadata, opened, onClose, onMerged }: MergeDialog
                     <ResultTextRow
                       key={field}
                       label={fieldLabel(field)}
-                      value={formatValue(value)}
+                      value={
+                        field === "actors" ? (
+                          <ActorNamesValue actors={filmActorsFromRaw(value)} />
+                        ) : (
+                          formatValue(value)
+                        )
+                      }
+                      tooltip={formatValue(value)}
                       source={src}
                       changed={changed}
                       onRevert={() => revert(field)}
@@ -402,9 +502,15 @@ export function MergeDialog({ metadata, opened, onClose, onMerged }: MergeDialog
                                 <Text size="xs" c="dimmed" w={100} style={{ flexShrink: 0 }}>
                                   {g.sources.join(", ")}
                                 </Text>
-                                <Text size="sm" lineClamp={2} style={{ flex: 1, minWidth: 0 }}>
-                                  {formatValue(g.value)}
-                                </Text>
+                                {field === "actors" ? (
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <ActorNamesValue actors={filmActorsFromRaw(g.value)} />
+                                  </div>
+                                ) : (
+                                  <Text size="sm" lineClamp={2} style={{ flex: 1, minWidth: 0 }}>
+                                    {formatValue(g.value)}
+                                  </Text>
+                                )}
                                 {active && (
                                   <Badge size="xs" color="brand">
                                     ✓
@@ -467,7 +573,7 @@ export function MergeDialog({ metadata, opened, onClose, onMerged }: MergeDialog
                         {fieldLabel(field)}
                       </Text>
                       <Stack gap={6}>
-                        {entries.map((entry) => {
+                        {sortMediaEntries(entries, imageProbes).map((entry) => {
                           const urls = urlsFromRaw(entry.value);
                           const active = current === entry.source;
                           return (
@@ -591,18 +697,21 @@ function Panel({
 function ResultTextRow({
   label,
   value,
+  tooltip,
   source,
   changed,
   onRevert,
   revertLabel,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
+  tooltip?: string;
   source: string | undefined;
   changed: boolean;
   onRevert: () => void;
   revertLabel: string;
 }) {
+  const tip = tooltip ?? (typeof value === "string" ? value : undefined);
   return (
     <Group
       gap="sm"
@@ -616,15 +725,39 @@ function ResultTextRow({
       <Text size="sm" fw={500} w={88} style={{ flexShrink: 0 }}>
         {label}
       </Text>
-      <Tooltip label={value} multiline maw={400} disabled={value.length < 40}>
-        <Text size="sm" lineClamp={2} style={{ flex: 1, minWidth: 0 }}>
-          {value}
-        </Text>
+      <Tooltip label={tip} multiline maw={400} disabled={tip == null || tip.length < 40}>
+        {typeof value === "string" ? (
+          <Text size="sm" lineClamp={2} style={{ flex: 1, minWidth: 0 }}>
+            {value}
+          </Text>
+        ) : (
+          <div style={{ flex: 1, minWidth: 0 }}>{value}</div>
+        )}
       </Tooltip>
       <Badge size="xs" variant={changed ? "filled" : "light"} style={{ flexShrink: 0 }}>
         {source ?? "—"}
       </Badge>
       {changed && <ActionRevert onClick={onRevert} label={revertLabel} />}
+    </Group>
+  );
+}
+
+function ActorNamesValue({ actors }: { actors: FilmActorValue[] }) {
+  if (actors.length === 0) {
+    return (
+      <Text size="sm" c="dimmed">
+        —
+      </Text>
+    );
+  }
+  return (
+    <Group gap={8} wrap="wrap">
+      {actors.map((actor, index) => (
+        <Group key={`${actor.name}:${actor.gender}:${index}`} gap={4} wrap="nowrap">
+          <Text size="sm">{actor.name}</Text>
+          <GenderMark gender={actor.gender} />
+        </Group>
+      ))}
     </Group>
   );
 }

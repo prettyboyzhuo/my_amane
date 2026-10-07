@@ -1,8 +1,4 @@
-"""Repository 按聚合拆分的 mixin.
-
-包外请从 ``amane.db`` 导入 ``Repository`` / ``FacetItem``.
-本包仅导出各 RepoMixin 与基类; ``facet_helpers`` 为包内实现细节.
-"""
+"""包外从 ``amane.db`` 导入 ``Repository`` / ``FacetItem``. ``facet_helpers`` 不在本包导出面."""
 
 from .agent import AgentRepoMixin
 from .base import RepositoryMixinBase

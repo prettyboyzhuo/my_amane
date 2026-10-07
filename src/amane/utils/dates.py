@@ -18,7 +18,7 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
 def normalize_calendar_date(value: str | None) -> str | None:
     """将多种日历写法规范为 ``YYYY-MM-DD``; 空串/无法解析返回 None.
 
-    含 ISO-8601 日期时间 (``...T...`` / 空格分隔时分秒): 只保留日历日, 丢弃时刻与时区.
+    含 ISO-8601 日期时间 (``...T...`` / 空格分隔时分秒): 只保留日历日, 不保留时刻与时区.
     Wikidata 时间串前导 ``+`` 会先剥掉再解析.
     """
     if value is None:

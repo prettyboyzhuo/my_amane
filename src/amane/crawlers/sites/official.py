@@ -1,11 +1,7 @@
-"""Official 爬虫 - 基于系列前缀或前序结果路由到制作商官网.
+"""按系列前缀或前序 studio 路由到制作商官网.
 
-路由策略 (按优先级):
-1. 用户配置的番号前缀 → 域名映射 (来自 config.official_routes)
-2. 从番号提取系列前缀 → 查 MANUFACTURER_SERIES → 确定厂商 → 查 MANUFACTURER_DOMAINS
-3. 从 partial_result.studio → 查 MANUFACTURER_ALIASES → 确定厂商 → 查 MANUFACTURER_DOMAINS
-
-所有 Outvision/Will 集团旗下厂商共用同一 CMS, 详情页 HTML 结构一致.
+优先级: ``config.official_routes`` → ``MANUFACTURER_SERIES`` → ``MANUFACTURER_ALIASES``.
+Outvision/Will 集团共用同一 CMS, 详情页 HTML 结构一致.
 """
 
 import re
@@ -15,8 +11,10 @@ from typing import TYPE_CHECKING, override
 from parsel import Selector
 
 from ...enums import SiteName
+from ...net.connectivity import ConnectivityOutcome, probe_get
+from ...plugins.models import SourceTrait
 from ..base import Crawler, CrawlerProfile
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
 
 if TYPE_CHECKING:
@@ -24,8 +22,6 @@ if TYPE_CHECKING:
 
 
 class Manufacturer(StrEnum):
-    """制作商枚举 - 拥有独立官网的 Outvision/Will 集团旗下品牌."""
-
     ATTACKERS = "attackers"
     BEFREE = "befree"
     BI = "bi"
@@ -56,10 +52,6 @@ class Manufacturer(StrEnum):
     V = "v"
     WANZ_FACTORY = "wanz_factory"
 
-
-# ---------------------------------------------------------------------------
-# 厂商 → 官网域名
-# ---------------------------------------------------------------------------
 
 MANUFACTURER_DOMAINS: dict[Manufacturer, str] = {
     Manufacturer.ATTACKERS: "attackers.net",
@@ -93,10 +85,6 @@ MANUFACTURER_DOMAINS: dict[Manufacturer, str] = {
     Manufacturer.WANZ_FACTORY: "www.wanz-factory.com",
 }
 
-
-# ---------------------------------------------------------------------------
-# 厂商 → 番号系列前缀 (用于从番号中匹配厂商)
-# ---------------------------------------------------------------------------
 
 MANUFACTURER_SERIES: dict[Manufacturer, list[str]] = {
     Manufacturer.S1: ["sivr", "ssis", "ssni", "snis", "soe", "oned", "one", "onsd", "ofje", "sps", "tksoe"],
@@ -224,10 +212,6 @@ MANUFACTURER_SERIES: dict[Manufacturer, list[str]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# 厂商 → 别名 (用于匹配前序爬虫返回的 studio 字段)
-# ---------------------------------------------------------------------------
-
 MANUFACTURER_ALIASES: dict[Manufacturer, list[str]] = {
     Manufacturer.ATTACKERS: ["Attackers", "Atakkaazu", "アタッカーズ"],
     Manufacturer.BEFREE: ["BeFree"],
@@ -261,13 +245,7 @@ MANUFACTURER_ALIASES: dict[Manufacturer, list[str]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# 反向索引 - 模块加载时构建
-# ---------------------------------------------------------------------------
-
-
 def _build_series_index() -> dict[str, Manufacturer]:
-    """构建 series_prefix → Manufacturer 的反向索引."""
     index: dict[str, Manufacturer] = {}
     for maker, prefixes in MANUFACTURER_SERIES.items():
         for prefix in prefixes:
@@ -276,7 +254,6 @@ def _build_series_index() -> dict[str, Manufacturer]:
 
 
 def _build_alias_index() -> dict[str, Manufacturer]:
-    """构建 normalized_alias → Manufacturer 的反向索引."""
     index: dict[str, Manufacturer] = {}
     for maker, aliases in MANUFACTURER_ALIASES.items():
         for alias in aliases:
@@ -287,33 +264,35 @@ def _build_alias_index() -> dict[str, Manufacturer]:
 
 
 _SERIES_TO_MAKER: dict[str, Manufacturer] = _build_series_index()
-"""系列前缀 → 厂商 (已 lowercase)."""
-
 _ALIAS_TO_MAKER: dict[str, Manufacturer] = _build_alias_index()
-"""小写别名 → 厂商."""
 
 
 def _extract_series_prefix(number: str) -> str:
-    """从番号中提取系列前缀 (字母部分), 如 'SSIS-001' → 'ssis'."""
-    # 移除分隔符后提取开头的字母序列
     cleaned = number.replace("-", "").replace("_", "").lstrip("0123456789")
     match = re.match(r"^([a-zA-Z]+)", cleaned)
     return match.group(1).lower() if match else ""
 
 
 class OfficialCrawler(Crawler):
-    """路由策略 (按优先级):
-    1. 用户配置的静态映射 (番号前缀 → 域名, 来自 config.official_routes)
-    2. 从番号提取系列前缀 → 确定厂商 → 获取域名
-    3. 从 partial_result.studio 别名匹配 → 确定厂商 → 获取域名
-    4. 未匹配则跳过
-    """
-
     @classmethod
     def profile(cls) -> CrawlerProfile:
         return CrawlerProfile(
-            name=SiteName.OFFICIAL, base_url="", urls=[f"https://{d}" for d in MANUFACTURER_DOMAINS.values()]
+            name=SiteName.OFFICIAL,
+            base_url="",
+            urls=[f"https://{d}" for d in MANUFACTURER_DOMAINS.values()],
+            traits=frozenset({SourceTrait.NEEDS_PARTIAL}),
         )
+
+    @override
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """集群没有总入口, 取一个厂牌站作代表.
+
+        配了 ``official_routes`` 时取其中首个映射到的域: 用户可能只刮某几个集团, 探默认表首项会得出
+        与其流量无关的结论. 结论只代表该域的可达性; 不同集团用各自的 CMS, 一个站可达不代表其它站可达.
+        """
+        configured = next(iter(self.config.official_routes.values()), None) if self.config else None
+        domain = MANUFACTURER_DOMAINS[configured] if configured else next(iter(MANUFACTURER_DOMAINS.values()))
+        return await probe_get(self.client.web_client, f"https://{domain}", cookies=self.cookies, headers=self.headers)
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         domain = self._resolve_domain(query, self.config)
@@ -329,7 +308,6 @@ class OfficialCrawler(Crawler):
 
         html = Selector(text=text)
 
-        # 统一模板解析 - Outvision/Will 集团共用 CMS, HTML 结构为 div.th/div.td 布局
         number = self._extract_number(html)
         if not number:
             self.logger.warning("extract number failed")
@@ -337,16 +315,14 @@ class OfficialCrawler(Crawler):
 
         title = self._extract_title(html)
 
-        # 仅取作品信息表"女優"栏, 勿扫整页 (推荐作品区也有 /actress/detail/ 链接)
+        # 仅取作品信息表「女優」栏; 推荐作品区也有 /actress/detail/ 链接, 不允许用整页 XPath.
         actors = extract_all_texts(
             html,
             '//div[@class="th"][contains(text(),"女優")]'
             '/following-sibling::div[@class="td"]'
             '//a[contains(@href,"/actress/detail/")]/text()',
         )
-        # 去重保持顺序
-        seen: set[str] = set()
-        actors = [a for a in actors if not (a in seen or seen.add(a))]
+        actors = list(dict.fromkeys(actors))
 
         release = extract_text(
             html, '//div[@class="th"][contains(text(),"発売日")]/following-sibling::div[@class="td"]//a/text()'
@@ -364,7 +340,7 @@ class OfficialCrawler(Crawler):
             '//a[contains(@href,"/works/list/genre/")]/text()',
         )
 
-        # 官网只提供横版封面 (thumb), 无竖版海报; 取作品轮播首图
+        # 官网只提供横版封面, 无竖版海报; thumb 取作品轮播首图.
         thumb_url = html.xpath(
             '//div[contains(@class,"p-slider")]//img[contains(@class,"swiper-lazy")]/@data-src'
         ).get()
@@ -373,13 +349,12 @@ class OfficialCrawler(Crawler):
             html, '//div[@class="th"][contains(text(),"シリーズ")]/following-sibling::div[@class="item"]//a/text()'
         )
 
-        # 制作商名称从 <title> 商标部分提取.
         studio = self._extract_studio(html)
 
         return MediaMetadata(
             number=number,
             title=title or None,
-            actors=actors,
+            actors=film_actors(actors),
             studio=studio or None,
             release=release or None,
             runtime=runtime,
@@ -389,26 +364,14 @@ class OfficialCrawler(Crawler):
             source_url=url,
         )
 
-    # ------------------------------------------------------------------
-    # 路由
-    # ------------------------------------------------------------------
-
     def _resolve_domain(self, query: SearchQuery, config: SiteConfig | None = None) -> str | None:
-        """
-        确定路由目标域名.
-
-        优先级:
-        1. 用户配置的前缀映射 (config.official_routes)
-        2. 番号系列前缀 → 厂商 → 域名
-        3. partial_result.studio → 别名匹配 → 厂商 → 域名
-        """
         number = query.number.upper()
 
-        # 1. 用户配置: 番号前缀 → 域名
         routes: dict[str, Manufacturer] = {}
         if config and config.official_routes:
             routes = config.official_routes
 
+        # 用户配置的番号前缀.
         for prefix, manufacturer in routes.items():
             if number.startswith(prefix.upper()):
                 self.logger.debug(
@@ -416,7 +379,7 @@ class OfficialCrawler(Crawler):
                 )
                 return MANUFACTURER_DOMAINS[manufacturer]
 
-        # 2. 番号系列前缀 → 厂商 → 域名
+        # 系列前缀.
         series_prefix = _extract_series_prefix(number)
         maker = _SERIES_TO_MAKER.get(series_prefix)
         if maker:
@@ -430,7 +393,7 @@ class OfficialCrawler(Crawler):
             )
             return domain
 
-        # 3. partial_result.studio → 别名匹配 → 厂商 → 域名
+        # 前序 studio 别名.
         if query.partial_result and query.partial_result.studio:
             studio = query.partial_result.studio
             maker, matched_alias = self._resolve_by_studio(studio)
@@ -456,29 +419,23 @@ class OfficialCrawler(Crawler):
 
     @staticmethod
     def _resolve_by_series(number: str) -> Manufacturer | None:
-        """从番号中提取系列前缀并匹配厂商."""
         prefix = _extract_series_prefix(number)
         return _SERIES_TO_MAKER.get(prefix)
 
     @staticmethod
     def _resolve_by_studio(studio_name: str) -> tuple[Manufacturer | None, str | None]:
-        """通过前序爬虫返回的 studio 名称匹配厂商. 返回 (manufacturer, matched_alias)."""
         key = studio_name.strip().lower()
         if key in _ALIAS_TO_MAKER:
             return _ALIAS_TO_MAKER[key], key
-        # 子串匹配: 别名包含在 studio 名称中 或 studio 名称包含在别名列表中
+        # 子串互含: 别名在 studio 中, 或 studio 在别名中.
         for alias_lower, maker in _ALIAS_TO_MAKER.items():
             if alias_lower in key or key in alias_lower:
                 return maker, alias_lower
         return None, None
 
-    # ------------------------------------------------------------------
-    # 解析工具
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _extract_number(html: Selector) -> str:
-        """从详情页提取番号. 页面结构: div.th(品番) + div.td > p > span(DVD/BD) + text."""
+        # 品番栏: div.th + div.td > p > span(DVD/BD) + text; 号码在 span 之后.
         raw = (
             html.xpath(
                 '//div[@class="th"][contains(text(),"品番")]/following-sibling::div[@class="td"]//p/text()'
@@ -493,7 +450,6 @@ class OfficialCrawler(Crawler):
 
     @staticmethod
     def _extract_title(html: Selector) -> str:
-        """从 <title> 提取作品标题, 去除 '| メーカー名 公式サイト' 后缀."""
         raw = (html.xpath("//title/text()").get() or "").strip()
         if " | " in raw:
             raw = raw.rsplit(" | ", 1)[0]
@@ -501,16 +457,13 @@ class OfficialCrawler(Crawler):
 
     @staticmethod
     def _extract_studio(html: Selector) -> str | None:
-        """从 <title> 的商标部分提取制作商名称."""
         raw = (html.xpath("//title/text()").get() or "").strip()
         if " | " in raw:
             suffix = raw.rsplit(" | ", 1)[1]
-            # 格式: "S級女優限定のAVメーカー【S1 NO.1 STYLE (エスワン...)】公式サイト"
-            # 提取 【...】 中的第一部分
+            # title 后缀形如「…【S1 NO.1 STYLE (エスワン…)】公式サイト」; 取【】内主名称.
             match = re.search(r"【(.+?)】", suffix)
             if match:
                 inner = match.group(1)
-                # 可能包含括号注释, 取主名称
                 return inner.split("(")[0].strip()
         return None
 

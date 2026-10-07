@@ -6,9 +6,10 @@ from pydantic import TypeAdapter
 
 from ...aggregate import compute_merge_updates
 from ...db.models import MetadataSortField, SavedQueryEntity, SortOrder, TaskType
+from ...db.repo_types import WriteMode
 from ...db.repos.media import file_phase_of
 from ...handlers import ScrapePayload
-from ...media import manual_crop_poster
+from ...media import manual_crop_image
 from ...parsing import DEFINITION_VALUES, ContentType, Mosaic, infer_content_type, summarize_file_phases
 from ...parsing import FilePhaseSummary as ParsedFilePhase
 from ...utils.dates import normalize_calendar_date
@@ -24,15 +25,16 @@ from ..models import (
     MetadataBatchIdsRequest,
     MetadataBatchScrapeRequest,
     MetadataBatchScrapeResponse,
-    MetadataBatchUserTagsRequest,
-    MetadataBatchUserTagsResponse,
     MetadataDetailResponse,
     MetadataListResponse,
+    MetadataLocksRequest,
     MetadataResponse,
+    MetadataUserTagsRequest,
     PartialMetadata,
+    UserTagLinksResponse,
     UserTagResponse,
 )
-from .agent import resolve_saved_query_id_subquery
+from .saved_queries import resolve_saved_query_id_subquery
 
 if TYPE_CHECKING:
     from ...db.repo_types import MetadataFields
@@ -61,7 +63,6 @@ def _require_known_definition(definition: str | None) -> str | None:
 
 @router.get("/schema")
 async def get_metadata_schema() -> dict:
-    """可编辑 metadata 字段的 JSON Schema, 供前端动态表单渲染."""
     return TypeAdapter(PartialMetadata).json_schema()
 
 
@@ -80,6 +81,7 @@ async def list_metadata(
     publisher_id: Annotated[list[int] | None, Query(description="Filter by publisher facet id(s); OR")] = None,
     series_id: Annotated[list[int] | None, Query(description="Filter by series facet id(s); OR")] = None,
     user_tag_id: Annotated[list[int] | None, Query(description="Filter by user tag id(s); AND")] = None,
+    library_id: Annotated[list[int] | None, Query(description="Filter by owning media library; OR")] = None,
     has_files: Annotated[bool | None, Query(description="Filter by presence of linked MediaFile(s)")] = None,
     has_subtitle: Annotated[bool | None, Query(description="Filter by linked file subtitle marker")] = None,
     mosaic: Annotated[Mosaic | None, Query(description="Filter by linked file mosaic marker")] = None,
@@ -92,7 +94,6 @@ async def list_metadata(
         int | None, Query(description="Saved query preset id; AND with other filters via SQL subquery")
     ] = None,
 ) -> MetadataListResponse:
-    """List metadata with optional search, facet filters, pagination, sorting."""
     definition = _require_known_definition(definition)
     id_subquery_sql = None
     if saved_query_id is not None:
@@ -110,6 +111,7 @@ async def list_metadata(
         publisher_ids=publisher_id,
         series_ids=series_id,
         user_tag_ids=user_tag_id,
+        library_ids=library_id,
         has_files=has_files,
         has_subtitle=has_subtitle,
         mosaic=mosaic,
@@ -136,7 +138,7 @@ async def list_metadata(
 
 @router.post("/batch/delete")
 async def batch_delete_metadata(req: MetadataBatchIdsRequest, repo: RepoDep) -> MetadataBatchDeleteResponse:
-    """批量删除元数据, 级联行为与单条删除一致."""
+    """级联行为与单条删除一致."""
     deleted, missing = await repo.batch_delete_metadata(req.ids)
     logger.info("metadata batch deleted", deleted=deleted, missing=missing)
     return MetadataBatchDeleteResponse(deleted=deleted, missing=missing)
@@ -144,7 +146,7 @@ async def batch_delete_metadata(req: MetadataBatchIdsRequest, repo: RepoDep) -> 
 
 @router.post("/batch/scrape", status_code=202)
 async def batch_scrape_metadata(req: MetadataBatchScrapeRequest, repo: RepoDep) -> MetadataBatchScrapeResponse:
-    """按 metadata id 列表批量提交刮削任务 (以各自 number 重新刮削)."""
+    """以各自 number 重新刮削."""
     task_ids: list[int] = []
     missing = 0
     # 挂载文件仅用于 content_type 推断 (req.content_type 显式给定时跳过).
@@ -174,28 +176,40 @@ async def batch_scrape_metadata(req: MetadataBatchScrapeRequest, repo: RepoDep) 
 
 
 @router.post("/batch/user-tags")
-async def batch_metadata_user_tags(req: MetadataBatchUserTagsRequest, repo: RepoDep) -> MetadataBatchUserTagsResponse:
-    """批量挂载/取消挂载用户 tag."""
-    if req.action == "attach":
-        affected, missing = await repo.batch_attach_user_tag(req.ids, req.user_tag_id)
-    else:
-        affected, missing = await repo.batch_detach_user_tag(req.ids, req.user_tag_id)
-    logger.info("metadata batch user tags", action=req.action, affected=affected, missing=missing)
-    return MetadataBatchUserTagsResponse(affected=affected, missing=missing)
+async def batch_metadata_user_tags(req: MetadataUserTagsRequest, repo: RepoDep) -> UserTagLinksResponse:
+    """把一组用户标签应用到一组影片; 未知标签 id 返回 404, 不存在的影片 id 计入 missing."""
+    try:
+        result = await repo.apply_metadata_user_tags(req.ids, req.user_tag_ids, action=req.action)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    logger.info(
+        "metadata user tags applied",
+        action=req.action,
+        changed=result.changed,
+        unchanged=result.unchanged,
+        missing=result.missing,
+    )
+    return UserTagLinksResponse(changed=result.changed, unchanged=result.unchanged, missing=result.missing)
 
 
 @router.get("/{metadata_id}")
 async def get_metadata(metadata_id: int, repo: RepoDep) -> MetadataDetailResponse:
-    """Get metadata detail with related files, user tags, comments, facet ids."""
     metadata = await repo.get_metadata(metadata_id)
     if metadata is None:
         raise HTTPException(status_code=404, detail="Metadata not found")
+    # 关联文件 / 用户 tag / 评论 / 分类 id
     files = await repo.get_media_by_metadata_id(metadata_id)
     user_tags = await repo.list_metadata_user_tags(metadata_id)
     comments = await repo.list_comments(metadata_id)
-    actor_ids, director_ids, tag_ids, studio_id, publisher_id, series_id = await repo.resolve_metadata_facet_ids(
-        metadata
-    )
+    (
+        actor_ids,
+        actor_genders,
+        director_ids,
+        tag_ids,
+        studio_id,
+        publisher_id,
+        series_id,
+    ) = await repo.resolve_metadata_facet_ids(metadata)
     return MetadataDetailResponse(
         metadata=to_resp(MetadataResponse, metadata).model_copy(
             update={
@@ -207,6 +221,7 @@ async def get_metadata(metadata_id: int, repo: RepoDep) -> MetadataDetailRespons
         user_tags=[to_resp(UserTagResponse, t) for t in user_tags],
         comments=[to_resp(CommentResponse, c) for c in comments],
         actor_ids=actor_ids,
+        actor_genders=actor_genders,
         director_ids=director_ids,
         tag_ids=tag_ids,
         studio_id=studio_id,
@@ -215,23 +230,8 @@ async def get_metadata(metadata_id: int, repo: RepoDep) -> MetadataDetailRespons
     )
 
 
-@router.put("/{metadata_id}/user-tags/{user_tag_id}", status_code=204)
-async def attach_user_tag(metadata_id: int, user_tag_id: int, repo: RepoDep) -> None:
-    ok = await repo.attach_user_tag(metadata_id, user_tag_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Metadata or user tag not found")
-
-
-@router.delete("/{metadata_id}/user-tags/{user_tag_id}", status_code=204)
-async def detach_user_tag(metadata_id: int, user_tag_id: int, repo: RepoDep) -> None:
-    ok = await repo.detach_user_tag(metadata_id, user_tag_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="User tag attachment not found")
-
-
 @router.patch("/{metadata_id}")
 async def update_metadata(metadata_id: int, req: PartialMetadata, repo: RepoDep) -> MetadataResponse:
-    """Update metadata fields."""
     updates = cast("MetadataFields", {k: v for k, v in req.model_dump().items() if v is not None})
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
@@ -244,16 +244,25 @@ async def update_metadata(metadata_id: int, req: PartialMetadata, repo: RepoDep)
             updates["release"] = normalized
         else:
             raise HTTPException(status_code=422, detail="release must be YYYY-MM-DD")
-    metadata = await repo.update_metadata(metadata_id, **updates)
+    metadata = await repo.update_metadata(metadata_id, mode=WriteMode.MANUAL, **updates)
     if metadata is None:
         raise HTTPException(status_code=404, detail="Metadata not found")
     logger.info("metadata updated", metadata_id=metadata_id, fields=list(updates.keys()))
     return to_resp(MetadataResponse, metadata)
 
 
+@router.put("/{metadata_id}/locks")
+async def set_metadata_locks(metadata_id: int, req: MetadataLocksRequest, repo: RepoDep) -> MetadataResponse:
+    """整体替换锁定字段集合."""
+    metadata = await repo.set_metadata_locks(metadata_id, req.fields)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    logger.info("metadata locks updated", metadata_id=metadata_id, fields=[str(field) for field in req.fields])
+    return to_resp(MetadataResponse, metadata)
+
+
 @router.delete("/{metadata_id}", status_code=204)
 async def delete_metadata(metadata_id: int, repo: RepoDep) -> None:
-    """Delete a metadata record."""
     deleted = await repo.delete_metadata(metadata_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Metadata not found")
@@ -274,21 +283,24 @@ async def crop_poster_from_thumb(
     if not metadata.thumb_urls:
         raise HTTPException(status_code=400, detail="无封面图可裁切")
 
+    # 按像素框裁切封面, 写入派生 Resource
     thumb_url = metadata.thumb_urls[0]
     box = (req.left, req.top, req.right, req.bottom)
     try:
-        poster_url = await manual_crop_poster(
+        poster_url = await manual_crop_image(
             thumb_url,
             box,
             runtime.resource_store,
             runtime.web_client,
             runtime.config.hot,
             runtime.config.cold.data_dir,
+            subject="封面图",
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    updated = await repo.update_metadata(metadata_id, poster_urls=[poster_url])
+    # 写回 poster_urls
+    updated = await repo.update_metadata(metadata_id, mode=WriteMode.MANUAL, poster_urls=[poster_url])
     assert updated is not None
     logger.info(
         "poster cropped",
@@ -301,8 +313,6 @@ async def crop_poster_from_thumb(
 
 @router.post("/{metadata_id}/merge")
 async def merge_metadata(metadata_id: int, req: MergeRequest, repo: RepoDep) -> MetadataResponse:
-    """按字段选择来源, 将对应 raw 数据合并到元数据."""
-
     if not req.selections:
         raise HTTPException(status_code=400, detail="no selections provided")
 
@@ -310,6 +320,7 @@ async def merge_metadata(metadata_id: int, req: MergeRequest, repo: RepoDep) -> 
     if metadata is None:
         raise HTTPException(status_code=404, detail="Metadata not found")
 
+    # 按 selections 从 raw 合并字段
     try:
         updates = compute_merge_updates(metadata.raw, metadata.field_sources, req.selections)
     except ValueError as e:
@@ -318,7 +329,8 @@ async def merge_metadata(metadata_id: int, req: MergeRequest, repo: RepoDep) -> 
     if not updates:
         raise HTTPException(status_code=400, detail="no valid selections")
 
-    updated = await repo.update_metadata(metadata_id, **cast("MetadataFields", updates))
+    # 写回元数据
+    updated = await repo.update_metadata(metadata_id, mode=WriteMode.MANUAL, **cast("MetadataFields", updates))
     assert updated is not None
     logger.info("metadata merged", metadata_id=metadata_id, selections=req.selections)
     return to_resp(MetadataResponse, updated)

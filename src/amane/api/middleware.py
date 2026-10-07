@@ -15,7 +15,7 @@ logger = structlog.get_logger("amane.request")
 #: token 校验豁免的 API 路径 (就绪检查, 探活/healthcheck 需要)
 _TOKEN_EXEMPT = {"/api/health"}
 
-#: 高频轮询/静态资源降噪: 不占 info 级, 仅在 DEBUG 可见
+#: 高频轮询/静态资源降噪: 不写入 info 级, 仅在 DEBUG 可见
 #: (/api/ws 长连接受 EventBus 事件驱动; /api/system/desktop 是菜单栏 bar 每 3s 轮询, 见 desktop.md)
 _NOISY_PATHS = frozenset({"/api/ws", "/favicon.ico", "/api/system/desktop"})
 
@@ -28,18 +28,14 @@ _COOKIE_MAX_AGE = 30 * 24 * 3600
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
-    """API token 校验: 除豁免路径外的所有 ``/api/*`` 请求需 Bearer token
-    (或认证成功后下发的 HttpOnly cookie).
-
-    token 从 ``runtime.api_token`` 动态读取 (``None`` = 关闭, 容器反代场景).
-    WebSocket 不走本中间件 (Starlette BaseHTTPMiddleware 不拦截 ws scope),
-    校验在 ws 端点内完成 (与子资源同用 ``API_TOKEN_COOKIE``). SPA/静态资源
-    (非 /api) 不校验 — 登录门页面本身必须可加载.
+    """除豁免路径外的 ``/api/*`` 须 Bearer 或同值 HttpOnly cookie.
+    ``runtime.api_token is None`` = 关闭校验. 非 /api (SPA/静态) 不校验, 登录页须可加载.
+    Starlette BaseHTTPMiddleware 不拦截 ws scope, WebSocket 校验在端点内完成.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
-        # WS 握手也是 HTTP 请求, 但 token 走 cookie (浏览器 WS 无法自定义
-        # header), 校验在 ws 端点内完成 — 这里直接透传.
+        # WS 握手是 HTTP 请求, 但浏览器无法自定义 header, token 经由 cookie;
+        # 校验在 ws 端点内完成 — 此处直接透传.
         if request.scope["type"] != "http":
             return await call_next(request)
 
@@ -72,19 +68,14 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """
-    为每个 HTTP 请求:
-    1. 生成 request_id 并绑定到 structlog contextvars
-    2. 记录结构化访问日志 (method, path, status, duration)
-
-    下游所有 logger 自动继承 request_id 上下文. 端点未捕获异常在 Starlette
-    500 兜底前记录 ``request failed`` (含 traceback), 保证 request.log 无缺口.
+    """端点未捕获异常须在 Starlette 返回 500 之前写入 ``request failed`` (含 traceback),
+    否则 request.log 对该请求完全无记录.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
         request_id = uuid.uuid4().hex[:12]
 
-        # 绑定请求上下文 - 下游所有日志自动携带
+        # 绑定请求上下文, 下游日志自动携带
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
@@ -94,8 +85,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception:
-            # 端点未捕获异常: Starlette 500 兜底前必须留痕 (含 traceback),
-            # 否则 request.log 对该请求完全无记录
+            # Starlette 返回 500 之前必须留痕, 否则 request.log 对该请求完全无记录
             duration_ms = (time.monotonic() - start) * 1000
             logger.error(
                 "request failed",
@@ -109,7 +99,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         duration_ms = (time.monotonic() - start) * 1000
 
-        # 降噪: 高频轮询/静态资源不占 info 级
+        # 高频轮询/静态资源不写入 info 级
         log = logger.debug if path in _NOISY_PATHS else logger.info
         log(
             "request completed",
@@ -119,6 +109,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             duration_ms=round(duration_ms, 1),
         )
 
-        # 设置响应头便于调试
+        # 写入响应头便于排查
         response.headers["X-Request-ID"] = request_id
         return response

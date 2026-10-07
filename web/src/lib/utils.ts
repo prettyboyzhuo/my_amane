@@ -5,7 +5,7 @@ export function isRecord(v: unknown): v is Record<string, unknown> {
 
 /**
  * 将外链图片 URL 包装为后端代理 URL, 绕过浏览器 CORS / 防盗链限制.
- * 仅 http(s) 协议会走代理, 其他 (data:, blob:, 相对路径) 原样返回.
+ * 仅 http(s) 协议经代理, 其他 (data:, blob:, 相对路径) 原样返回.
  */
 export function proxyImageUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -17,7 +17,6 @@ export function proxyImageUrl(url: string | null | undefined): string | undefine
 
 const FILE_SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** 人类可读文件大小 (1024 进制). */
 export function formatFileSize(bytes: number | null | undefined): string {
   if (bytes == null) return "-";
   let value = bytes;

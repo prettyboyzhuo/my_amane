@@ -43,5 +43,5 @@ def needs_llm_translation(s: str, target: Language) -> bool:
         return target != Language.JP
     if is_ascii_only(s):
         return target != Language.EN
-    # 其余视为中文 (含日文纯汉字这一极少数边角): 中文内部变体由 zhconv 处理, 不走 LLM.
+    # 其余视为中文 (含日文纯汉字这一极少数边角): 中文内部变体由 zhconv 处理, 不经 LLM.
     return False

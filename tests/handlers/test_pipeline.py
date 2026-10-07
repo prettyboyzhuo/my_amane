@@ -9,7 +9,6 @@ from amane.config import HotSettings, ScrapingConfig
 from amane.crawlers.base import Crawler
 from amane.crawlers.factory import CrawlerFactory
 from amane.crawlers.models import MediaMetadata
-from amane.db.models import MediaFileStatus
 from amane.enums import SiteName
 from amane.handlers import OrganizeHandler, OrganizePayload, ScrapeHandler, ScrapePayload
 from amane.organize import MoveMode
@@ -43,16 +42,18 @@ class FakeCrawler(Crawler):
 
 @pytest.fixture
 def fake_metadata():
-    return MediaMetadata(
-        number="MIDV-123",
-        title="Test Title",
-        actors=["Actor A"],
-        studio="Studio X",
-        release="2026-01-15",
-        runtime=120,
-        thumb_urls=["https://img.example.com/thumb.jpg"],
-        poster_urls=["https://img.example.com/p1.jpg", "https://img.example.com/p2.jpg"],
-        extrafanart=["https://img.example.com/extra1.jpg"],
+    return MediaMetadata.model_validate(
+        {
+            "number": "MIDV-123",
+            "title": "Test Title",
+            "actors": ["Actor A"],
+            "studio": "Studio X",
+            "release": "2026-01-15",
+            "runtime": 120,
+            "thumb_urls": ["https://img.example.com/thumb.jpg"],
+            "poster_urls": ["https://img.example.com/p1.jpg", "https://img.example.com/p2.jpg"],
+            "extrafanart": ["https://img.example.com/extra1.jpg"],
+        }
     )
 
 
@@ -65,7 +66,7 @@ def fake_factory(fake_metadata):
 
 @pytest.mark.asyncio(loop_scope="function")
 async def test_full_pipeline_with_post_processing(repo: Repository, fake_factory, resource_store, tmp_path: Path):
-    """SCRAPE 写元数据, ORGANIZE 落盘 NFO 并移动文件."""
+    """SCRAPE 写元数据, ORGANIZE 落盘 NFO 并移动文件. 目标路径不在本库内时删除索引."""
     src_dir = tmp_path / "incoming"
     src_dir.mkdir()
     src_file = src_dir / "MIDV-123.mp4"
@@ -79,13 +80,14 @@ async def test_full_pipeline_with_post_processing(repo: Repository, fake_factory
 
     pipeline_config = HotSettings(scraping=ScrapingConfig(field_priority={}))
 
-    async def _fake_download(url: str, dest: Path) -> bool:
+    async def _fake_download(url: str, dest: Path, **_: object) -> bool:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"fake image data")
         return True
 
     mock_web_client = AsyncMock()
     mock_web_client.download = AsyncMock(side_effect=_fake_download)
+    mock_web_client.resolve_final_url = AsyncMock(side_effect=lambda url, **_: url)
 
     scrape = ScrapeHandler(
         repo=repo,
@@ -115,9 +117,9 @@ async def test_full_pipeline_with_post_processing(repo: Repository, fake_factory
     assert not src_file.exists()
 
     assert media.id is not None
-    media_updated = await repo.get_media_file(media.id)
-    assert media_updated is not None
-    assert media_updated.status == MediaFileStatus.SCRAPED
+    assert await repo.get_media_file(media.id) is None
+    kept_meta = await repo.get_metadata(result.result.metadata_id)
+    assert kept_meta is not None
 
 
 @pytest.mark.asyncio(loop_scope="function")
@@ -137,13 +139,14 @@ async def test_pipeline_copy_mode_keeps_source(repo: Repository, fake_factory, r
     assert lib.id is not None
     media = await repo.create_media_file(library_id=lib.id, path=str(src_file))
 
-    async def _fake_download(url: str, dest: Path) -> bool:
+    async def _fake_download(url: str, dest: Path, **_: object) -> bool:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"fake image data")
         return True
 
     mock_web_client = AsyncMock()
     mock_web_client.download = AsyncMock(side_effect=_fake_download)
+    mock_web_client.resolve_final_url = AsyncMock(side_effect=lambda url, **_: url)
 
     scrape = ScrapeHandler(
         repo=repo,
@@ -202,7 +205,7 @@ async def test_dead_poster_url_reordered_before_persist(repo: Repository, fake_f
 
     pipeline_config = HotSettings(scraping=ScrapingConfig(field_priority={}))
 
-    async def _fake_download(url: str, dest: Path) -> bool:
+    async def _fake_download(url: str, dest: Path, **_: object) -> bool:
         if url == "https://img.example.com/p1.jpg":
             return False
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +214,7 @@ async def test_dead_poster_url_reordered_before_persist(repo: Repository, fake_f
 
     mock_web_client = AsyncMock()
     mock_web_client.download = AsyncMock(side_effect=_fake_download)
+    mock_web_client.resolve_final_url = AsyncMock(side_effect=lambda url, **_: url)
 
     handler = ScrapeHandler(
         repo=repo,

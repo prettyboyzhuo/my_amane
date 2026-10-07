@@ -1,19 +1,24 @@
-import { ActionIcon, Group, Menu, Text, Tooltip } from "@mantine/core";
+import { Group, Menu, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconAdjustmentsHorizontal,
+  IconSparkles,
   IconFolderDown,
   IconScan,
   IconTrash,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   deleteLibraryMutation,
   listLibrariesQueryKey,
   submitTaskMutation,
 } from "@/client/@tanstack/react-query.gen";
+import { submitTask } from "@/client/sdk.gen";
 import type { LibraryResponse } from "@/client/types.gen";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
+import { CleanupPanel } from "@/components/library/cleanup-panel";
 import { extractErrorMessage } from "@/lib/api-error";
 import { confirm } from "@/lib/confirm";
 
@@ -24,7 +29,7 @@ interface LibraryActionButtonsProps {
   onDeleted?: () => void;
 }
 
-/** 扫描 / 整理 / 配置 / 删除. 列表卡片与详情表体顶栏共用. */
+/** 扫描 / 整理 / 清理无效文件 / 配置 / 删除. 列表卡片与详情表体顶栏共用. */
 export function LibraryActionButtons({
   library,
   onConfigure,
@@ -32,6 +37,7 @@ export function LibraryActionButtons({
 }: LibraryActionButtonsProps) {
   const { t } = useTranslation(["library", "common"]);
   const queryClient = useQueryClient();
+  const [cleanupOpen, setCleanupOpen] = useState(false);
 
   const invalidate = () =>
     void queryClient.invalidateQueries({ queryKey: listLibrariesQueryKey() });
@@ -46,7 +52,12 @@ export function LibraryActionButtons({
       }),
   });
   const organizeMutation = useMutation({
-    ...submitTaskMutation(),
+    mutationFn: async () => {
+      await submitTask({
+        body: { type: "organize", library_id: library.id },
+        throwOnError: true,
+      });
+    },
     onSuccess: () =>
       notifications.show({ message: t("common:toast.organizeStarted"), color: "blue" }),
     onError: (err) =>
@@ -83,15 +94,13 @@ export function LibraryActionButtons({
     <Group gap={4} wrap="nowrap">
       <Menu shadow="md" position="bottom-end">
         <Menu.Target>
-          <Tooltip label={t("scan.menuLabel")}>
-            <ActionIcon
-              variant="light"
-              loading={scanMutation.isPending}
-              aria-label={t("scan.menuLabel")}
-            >
-              <IconScan size={16} />
-            </ActionIcon>
-          </Tooltip>
+          <HintedActionIcon
+            variant="light"
+            loading={scanMutation.isPending}
+            label={t("scan.menuLabel")}
+          >
+            <IconScan size={16} />
+          </HintedActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
           <Menu.Item
@@ -125,34 +134,34 @@ export function LibraryActionButtons({
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
-      <Tooltip label={t("organize.tooltip")}>
-        <ActionIcon
-          variant="light"
-          loading={organizeMutation.isPending}
-          aria-label={t("organize.tooltip")}
-          onClick={() =>
-            organizeMutation.mutate({ body: { type: "organize", library_id: library.id } })
-          }
-        >
-          <IconFolderDown size={16} />
-        </ActionIcon>
-      </Tooltip>
-      <Tooltip label={t("configureLibrary")}>
-        <ActionIcon variant="light" onClick={onConfigure} aria-label={t("configureLibrary")}>
-          <IconAdjustmentsHorizontal size={16} />
-        </ActionIcon>
-      </Tooltip>
-      <Tooltip label={t("deleteLibrary.tooltip")}>
-        <ActionIcon
-          variant="light"
-          color="red"
-          loading={deleteMutation.isPending}
-          onClick={() => void handleDelete()}
-          aria-label={t("deleteLibrary.tooltip")}
-        >
-          <IconTrash size={16} />
-        </ActionIcon>
-      </Tooltip>
+      <HintedActionIcon
+        variant="light"
+        loading={organizeMutation.isPending}
+        label={t("organize.tooltip")}
+        onClick={() => void organizeMutation.mutate()}
+      >
+        <IconFolderDown size={16} />
+      </HintedActionIcon>
+      <HintedActionIcon
+        variant="light"
+        onClick={() => setCleanupOpen(true)}
+        label={t("cleanup.tooltip")}
+      >
+        <IconSparkles size={16} />
+      </HintedActionIcon>
+      <HintedActionIcon variant="light" onClick={onConfigure} label={t("configureLibrary")}>
+        <IconAdjustmentsHorizontal size={16} />
+      </HintedActionIcon>
+      <HintedActionIcon
+        variant="light"
+        color="red"
+        loading={deleteMutation.isPending}
+        onClick={() => void handleDelete()}
+        label={t("deleteLibrary.tooltip")}
+      >
+        <IconTrash size={16} />
+      </HintedActionIcon>
+      <CleanupPanel library={library} opened={cleanupOpen} onClose={() => setCleanupOpen(false)} />
     </Group>
   );
 }

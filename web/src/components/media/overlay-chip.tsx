@@ -1,7 +1,7 @@
-import { Group, Text } from "@mantine/core";
+import { Group, Text, Tooltip } from "@mantine/core";
 import type { ReactNode } from "react";
 
-/** 海报/头像角标: 半透明黑底圆角 + 白字, 片库评分/日期与相位水印共用. */
+/** 片库评分/日期与相位水印共用. */
 export const OVERLAY_CHIP_STYLE = {
   zIndex: 1,
   borderRadius: "var(--mantine-radius-xl)",
@@ -16,19 +16,13 @@ interface OverlayChipProps {
 }
 
 export function OverlayChip({ children, title, "aria-label": ariaLabel }: OverlayChipProps) {
-  return (
-    <Group
-      gap={4}
-      wrap="nowrap"
-      px={7}
-      py={3}
-      style={OVERLAY_CHIP_STYLE}
-      title={title}
-      aria-label={ariaLabel}
-    >
+  const chip = (
+    <Group gap={4} wrap="nowrap" px={7} py={3} style={OVERLAY_CHIP_STYLE} aria-label={ariaLabel}>
       {children}
     </Group>
   );
+  if (title == null) return chip;
+  return <Tooltip label={title}>{chip}</Tooltip>;
 }
 
 interface OverlayChipLabelProps {

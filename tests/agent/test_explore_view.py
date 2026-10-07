@@ -2,27 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import aiosqlite
 import pytest
 import pytest_asyncio
+from pydantic_ai import RunContext
 
 from amane.agent.cache import ResultCache
 from amane.agent.executor import QueryExecutor
 from amane.agent.sql import ReadonlySqlSandbox
-from amane.agent.tools import AgentDeps, materialize_saved_query
-from amane.agent.trace import TraceEvent
+from amane.agent.tools import AgentDeps, build_explore_toolset, materialize_saved_query
 from amane.db.models import SavedQueryEntity
 from amane.db.repository import Repository
-
-
-class _MemTrace:
-    def __init__(self) -> None:
-        self.events: list[TraceEvent] = []
-
-    def append(self, event: TraceEvent) -> None:
-        self.events.append(event)
 
 
 @pytest_asyncio.fixture
@@ -42,7 +37,6 @@ async def explore_env(tmp_path: Path, repo: Repository) -> tuple[AgentDeps, Path
         repo=repo,
         executor=executor,
         session_id=session.id,
-        trace=_MemTrace(),  # type: ignore[arg-type]
         sql_timeout_ms=5000,
         sample_limit=5,
     )
@@ -51,7 +45,7 @@ async def explore_env(tmp_path: Path, repo: Repository) -> tuple[AgentDeps, Path
 
 @pytest.mark.asyncio
 async def test_materialize_explore_view_not_surfaced(explore_env: tuple[AgentDeps, Path]) -> None:
-    """探查视图是行数组: 无 entity、无 id 列要求, 不挂交付芯片."""
+    """探查视图是行数组: 无 entity、无 id 列要求."""
     deps, _db = explore_env
     result = await deps.executor.run_sql("SELECT title FROM metadata ORDER BY id", timeout_ms=deps.sql_timeout_ms)
     view_id, name, entity_ids = await materialize_saved_query(
@@ -60,13 +54,11 @@ async def test_materialize_explore_view_not_surfaced(explore_env: tuple[AgentDep
         entity=None,
         name="probe",
         result=result,
-        surface_to_user=False,
     )
     assert view_id > 0
     assert name == "probe"
     assert entity_ids == []
-    assert deps.last_saved_query_ids == []
-    assert deps.executor.cache.get(view_id) is not None
+    assert deps.executor.cache.get(view_id, "SELECT title FROM metadata ORDER BY id") is not None
 
     query = await deps.repo.get_saved_query(view_id)
     assert query is not None
@@ -77,20 +69,18 @@ async def test_materialize_explore_view_not_surfaced(explore_env: tuple[AgentDep
 
 
 @pytest.mark.asyncio
-async def test_materialize_deliver_surfaces_to_user(explore_env: tuple[AgentDeps, Path]) -> None:
-    """实体交付: 抽 id 列并挂芯片."""
+async def test_materialize_deliver_extracts_entity_ids(explore_env: tuple[AgentDeps, Path]) -> None:
+    """实体交付: 抽取实体 id 列."""
     deps, _db = explore_env
     result = await deps.executor.run_sql("SELECT id FROM metadata WHERE id <= 3", timeout_ms=deps.sql_timeout_ms)
-    view_id, _name, entity_ids = await materialize_saved_query(
+    _view_id, _name, entity_ids = await materialize_saved_query(
         deps,
         sql="SELECT id FROM metadata WHERE id <= 3",
         entity=SavedQueryEntity.METADATA,
         name=None,
         result=result,
-        surface_to_user=True,
     )
     assert entity_ids == [1, 2, 3]
-    assert deps.last_saved_query_ids == [view_id]
 
 
 @pytest.mark.asyncio
@@ -106,14 +96,12 @@ async def test_materialize_data_deliver_without_id(explore_env: tuple[AgentDeps,
         entity=None,
         name=None,
         result=result,
-        surface_to_user=True,
     )
     assert entity_ids == []
     query = await deps.repo.get_saved_query(view_id)
     assert query is not None
     assert query.entity == SavedQueryEntity.DATA
     assert query.name == "数据查询"
-    assert deps.last_saved_query_ids == [view_id]
 
 
 @pytest.mark.asyncio
@@ -128,7 +116,6 @@ async def test_materialize_entity_deliver_requires_id(explore_env: tuple[AgentDe
             entity=SavedQueryEntity.METADATA,
             name=None,
             result=result,
-            surface_to_user=True,
         )
 
 
@@ -140,3 +127,45 @@ async def test_explore_without_view_truncates_sample(explore_env: tuple[AgentDep
     )
     assert len(result.rows) == 5
     assert result.row_count == -1
+
+
+def _deliver_fn() -> Callable[..., Awaitable[dict[str, Any]]]:
+    toolset = build_explore_toolset()
+    return cast(Callable[..., Awaitable[dict[str, Any]]], toolset.tools["sql_deliver"].function)
+
+
+@pytest.mark.asyncio
+async def test_sql_deliver_reports_row_count_not_id_count(explore_env: tuple[AgentDeps, Path]) -> None:
+    """交付的是行集: 重复 id 时计数取行数, 不取去重后的 id 数."""
+    deps, db = explore_env
+    async with aiosqlite.connect(db) as conn:
+        await conn.execute("CREATE TABLE links (metadata_id INTEGER)")
+        await conn.executemany("INSERT INTO links (metadata_id) VALUES (?)", [(1,), (1,), (2,)])
+        await conn.commit()
+
+    ctx = cast(RunContext[AgentDeps], SimpleNamespace(deps=deps, tool_call_approved=False))
+    out = await _deliver_fn()(
+        ctx,
+        sql="SELECT m.id FROM metadata m JOIN links l ON l.metadata_id = m.id",
+        entity=SavedQueryEntity.METADATA,
+    )
+
+    assert out["row_count"] == 3
+    assert out["saved_query_id"] > 0
+    assert (await deps.repo.get_saved_query(out["saved_query_id"])) is not None
+
+
+@pytest.mark.asyncio
+async def test_sql_deliver_stores_description(explore_env: tuple[AgentDeps, Path]) -> None:
+    """交付描述落入预设, 首尾空白被去除."""
+    deps, _db = explore_env
+    ctx = cast(RunContext[AgentDeps], SimpleNamespace(deps=deps, tool_call_approved=False))
+    out = await _deliver_fn()(
+        ctx,
+        sql="SELECT title FROM metadata WHERE id <= 2 ORDER BY id",
+        description="  未整理的条目  ",
+    )
+
+    query = await deps.repo.get_saved_query(out["saved_query_id"])
+    assert query is not None
+    assert query.description == "未整理的条目"

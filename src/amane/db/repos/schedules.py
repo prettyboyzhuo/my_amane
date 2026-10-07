@@ -47,7 +47,7 @@ class SchedulesRepoMixin(RepositoryMixinBase):
             schedule = await session.get(Schedule, schedule_id)
             if schedule is None:
                 return None
-            # 显式赋值: 字段名与类型由 ScheduleUpdates(TypedDict) 与 Schedule 静态保证一致.
+            # 显式赋值, 禁止 setattr; 字段集由 ScheduleUpdates 与 Schedule 静态对齐.
             if "name" in updates:
                 schedule.name = updates["name"]
             if "cron" in updates:

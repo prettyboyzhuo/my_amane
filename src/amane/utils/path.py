@@ -1,23 +1,40 @@
-import os
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from pathlib import Path
+import os
+import unicodedata
+from pathlib import Path
 
 
 def _resolve_or_literal(p: str | Path) -> str:
-    """解析为规范路径; 解析失败 (虚拟/重定向卷不支持查询等) 时按字面绝对路径兜底.
+    """解析为规范路径; 解析失败 (虚拟/重定向卷不支持查询等) 时按字面绝对路径回退.
 
     必须使用 ``strict=False``: Windows 上 CloudDrive2 类虚拟卷或断连网络盘会使
-    规范化查询失败 (WinError 1/1005 等), 严格模式会直接抛错. 非严格模式走 CPython
-    容错路径 (按组件遍历), 不应向上传播异常. 兜底用 ``abspath`` 做 lexically 归一,
+    规范化查询失败 (WinError 1/1005 等), 严格模式会直接抛错. 非严格模式经 CPython
+    容错路径 (按组件遍历), 不应向上传播异常. 回退用 ``abspath`` 做 lexically 归一,
     保证 ``..`` 片段不会被字面比较误放行.
     """
     try:
         return os.path.realpath(p, strict=False)
     except OSError, ValueError:
-        # 兜底需 lexically 归一且不做链接解析, Path.resolve() 语义不符
+        # 回退需 lexically 归一且不做链接解析, Path.resolve() 语义不符
         return os.path.abspath(os.fspath(p))  # noqa: PTH100
+
+
+def resolved_path(path: str | Path) -> Path:
+    """真实路径: 解析符号链接后的绝对路径, 解析失败时按字面绝对路径回退.
+
+    库路径及其派生的索引路径必须同一形式: 两侧按字面比较, 写法不同会把同一个文件算成两个.
+    """
+    return Path(_resolve_or_literal(path))
+
+
+def is_resolved_path(path: str | Path) -> bool:
+    """路径是否已经是真实路径.
+
+    与字面形式比较时必须先做 lexical 归一 (``Path`` 不折叠 ``..``), 且不能用 ``Path.resolve()``:
+    它会跟随符号链接, 那正是这里要区分的差别.
+    """
+    return resolved_path(path) == Path(os.path.abspath(os.fspath(path)))  # noqa: PTH100
 
 
 def is_descendant(p: str | Path, parent: str | Path) -> bool:
@@ -40,3 +57,51 @@ def is_descendant(p: str | Path, parent: str | Path) -> bool:
 
 def is_any_descendant(p: str | Path, *parents: str | Path) -> bool:
     return any(is_descendant(p, parent) for parent in parents)
+
+
+def path_key(path: str | Path) -> str:
+    """字面路径的比较键: NFC、``normcase`` 与 ``normpath``.
+
+    与 `path_is_under` 同一套归一, 供集合成员判定使用 — 两两比较在万级规模下是平方.
+    """
+    return os.path.normcase(os.path.normpath(nfc_path(os.fspath(path))))
+
+
+def path_is_under(path: str | Path, root: str | Path) -> bool:
+    """字面路径是否为 root 自身或子孙.
+
+    不做 realpath: 目录移出或删除后源路径已不存在, 仍须能按索引前缀匹配.
+    比较前 NFC、``normcase``、``normpath``, 避免 ``/a/bar`` 命中 ``/a/barbar``.
+    """
+    candidate = Path(path_key(path))
+    base = Path(path_key(root))
+    return candidate == base or base in candidate.parents
+
+
+def nfc_path(path: str) -> str:
+    """库内路径身份一律 NFC.
+
+    MediaFile.path 的写入、按路径查找、与库内路径做集合差必须经过此函数.
+    """
+    return unicodedata.normalize("NFC", path)
+
+
+def path_forms(path: str | Path) -> tuple[Path, ...]:
+    """磁盘 I/O 候选: 传入形式, 再补规范等价的 NFC / NFD (去重, 保序)."""
+    raw = os.fspath(path)
+    forms: list[Path] = []
+    seen: set[str] = set()
+    for text in (raw, nfc_path(raw), unicodedata.normalize("NFD", raw)):
+        if text in seen:
+            continue
+        seen.add(text)
+        forms.append(Path(text))
+    return tuple(forms)
+
+
+def existing_disk_path(path: str | Path, *, follow_symlinks: bool = True) -> Path | None:
+    """返回磁盘上存在的第一种形式. Linux / Windows 上 NFC 与 NFD 是不同文件名."""
+    for candidate in path_forms(path):
+        if candidate.exists(follow_symlinks=follow_symlinks):
+            return candidate
+    return None

@@ -11,7 +11,8 @@ import {
 } from "@mantine/core";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import type { AnyFieldApi } from "@tanstack/react-form";
-import { useState } from "react";
+import { useRef, useState, type FocusEvent } from "react";
+import { isEmptyDictValue } from "../encode";
 import { useDictKeyI18n } from "../hooks";
 import type { DictFieldProps, JSONSchemaObject } from "../schema";
 import {
@@ -22,7 +23,8 @@ import {
   isSimpleScalar,
   isVisibleForKey,
 } from "../schema";
-import { DictEntryScope, dictEntryForm } from "./dict-entry-form";
+import classes from "./dict-field.module.css";
+import { asDict, DictEntryScope, dictEntryForm } from "./dict-entry-form";
 import { FieldRouter } from "./field-router";
 
 export function DictField({
@@ -46,6 +48,9 @@ export function DictField({
 
   const [newKey, setNewKey] = useState("");
   const [activeTab, setActiveTab] = useState("");
+  // 标题栏滚轮不得切换条目 (部分浏览器把 tablist 当 radio group).
+  const ignoreWheelTabChange = useRef(false);
+  const ignoreWheelTabTimer = useRef(0);
 
   const keyEnum =
     schema.propertyNames && isEnum(schema.propertyNames) ? schema.propertyNames.enum : null;
@@ -53,9 +58,32 @@ export function DictField({
   return (
     <form.Field name={name}>
       {(field: AnyFieldApi) => {
-        const dictValue = (field.state.value as Record<string, unknown>) || {};
+        const dictValue = asDict(field.state.value);
         const allKeys = Object.keys(dictValue);
         const entries = allKeys.map((k) => [k, dictValue[k]] as const);
+        const resolvedTab = allKeys.includes(activeTab) ? activeTab : (allKeys[0] ?? "");
+
+        /**
+         * 条目失焦且值仍为空时删除该 key.
+         *
+         * 空值条目在编码阶段已按缺席处理 (`encodeEmptyValue`); 输入过程中的空值只是中间态,
+         * 就地删除会连同控件卸载, 用户无法清空后重新输入. `x-frozen-keys` 的空值必须保留.
+         */
+        const pruneEmptyEntry = (key: string) => {
+          if (!canModifyKeys) return;
+          const latest = asDict(field.state.value);
+          if (!(key in latest) || !isEmptyDictValue(latest[key])) return;
+          const rest = { ...latest };
+          delete rest[key];
+          field.handleChange(rest);
+        };
+
+        /** 焦点移出条目才算失焦; 在条目内部控件之间移动不删除. */
+        const handleEntryBlur = (key: string, event: FocusEvent<HTMLDivElement>) => {
+          const next = event.relatedTarget;
+          if (next instanceof Node && event.currentTarget.contains(next)) return;
+          pruneEmptyEntry(key);
+        };
 
         const handleAdd = () => {
           if (!newKey.trim() || newKey in dictValue) return;
@@ -87,7 +115,7 @@ export function DictField({
         return (
           <Stack gap="xs" py="xs">
             <Group justify="space-between" align="flex-start" wrap="nowrap">
-              <Stack gap={2}>
+              <Stack gap={2} miw={0}>
                 <Text size="sm" fw={500}>
                   {label}
                 </Text>
@@ -102,7 +130,7 @@ export function DictField({
                   {keyEnum ? (
                     <Select
                       size="xs"
-                      w={160}
+                      w={{ base: 110, sm: 160 }}
                       placeholder="Select..."
                       value={newKey || null}
                       onChange={(val) => setNewKey(val ?? "")}
@@ -114,7 +142,7 @@ export function DictField({
                   ) : (
                     <TextInput
                       size="xs"
-                      w={160}
+                      w={{ base: 110, sm: 160 }}
                       placeholder="New key..."
                       value={newKey}
                       onChange={(e) => setNewKey(e.target.value)}
@@ -153,6 +181,7 @@ export function DictField({
                     {entries.map(([key], idx) => (
                       <Group
                         key={key}
+                        className={classes.kvRow}
                         justify="space-between"
                         wrap="nowrap"
                         gap="sm"
@@ -164,21 +193,13 @@ export function DictField({
                             : { borderTop: "1px solid var(--mantine-color-default-border)" }
                         }
                       >
-                        <Text
-                          size="sm"
-                          fw={500}
-                          title={getKeyLabel(key)}
-                          style={{
-                            minWidth: 140,
-                            maxWidth: 200,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <Text size="sm" fw={500} title={getKeyLabel(key)}>
                           {getKeyLabel(key)}
                         </Text>
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{ flex: 1, minWidth: 0 }}
+                          onBlur={(event) => handleEntryBlur(key, event)}
+                        >
                           <DictEntryScope parentField={field} entryKey={key} bindEntry>
                             <FieldRouter
                               name={`${name}:${key}`}
@@ -210,24 +231,30 @@ export function DictField({
               </Paper>
             ) : (
               <Tabs
-                value={activeTab || entries[0]?.[0] || ""}
-                onChange={(val) => setActiveTab(val ?? "")}
-                // Manual activation only: wheel / arrow keys must not steal page scroll
-                // or switch tabs while the pointer is over this widget.
-                activateTabWithKeyboard={false}
-                onWheel={(e) => {
-                  const focused = document.activeElement;
-                  if (
-                    focused instanceof HTMLElement &&
-                    focused.getAttribute("role") === "tab" &&
-                    e.currentTarget.contains(focused)
-                  ) {
-                    focused.blur();
-                  }
+                value={resolvedTab}
+                onChange={(val) => {
+                  if (ignoreWheelTabChange.current) return;
+                  setActiveTab(val ?? "");
                 }}
+                activateTabWithKeyboard={false}
               >
                 <Paper withBorder radius="md" style={{ overflow: "hidden" }}>
-                  <Tabs.List>
+                  <Tabs.List
+                    onWheel={() => {
+                      ignoreWheelTabChange.current = true;
+                      const focused = document.activeElement;
+                      if (
+                        focused instanceof HTMLElement &&
+                        focused.getAttribute("role") === "tab"
+                      ) {
+                        focused.blur();
+                      }
+                      window.clearTimeout(ignoreWheelTabTimer.current);
+                      ignoreWheelTabTimer.current = window.setTimeout(() => {
+                        ignoreWheelTabChange.current = false;
+                      }, 120);
+                    }}
+                  >
                     {entries.map(([key]) => (
                       <Tabs.Tab key={key} value={key}>
                         {getKeyLabel(key)}
@@ -275,7 +302,7 @@ export function DictField({
                         </DictEntryScope>
                       ) : (
                         <DictEntryScope parentField={field} entryKey={key} bindEntry>
-                          <Stack gap={0} pl="xs">
+                          <Stack gap={0} pl="xs" onBlur={(event) => handleEntryBlur(key, event)}>
                             <FieldRouter
                               name={`${name}:${key}`}
                               i18nPath={`${i18nPath}.$`}

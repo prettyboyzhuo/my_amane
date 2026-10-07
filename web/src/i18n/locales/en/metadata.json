@@ -1,5 +1,4 @@
 {
-  "title": "Metadata",
   "search": {
     "placeholder": "Search number, title…",
     "advanced": "Advanced search",
@@ -15,6 +14,7 @@
     "mosaic": "Mosaic mark",
     "definition": "Definition",
     "contentType": "Content type",
+    "library": "Library",
     "any": "Any",
     "yes": "Yes",
     "no": "No",
@@ -28,6 +28,7 @@
       "hentai": "Hentai"
     },
     "mosaics": {
+      "censored": "Censored",
       "uncensored": "Uncensored mark",
       "cracked": "Cracked",
       "leaked": "Leaked"
@@ -35,6 +36,7 @@
   },
   "filePhase": {
     "subtitle": "SUB",
+    "censored": "CEN",
     "uncensored": "U",
     "cracked": "CRACK",
     "leaked": "LEAK"
@@ -51,22 +53,18 @@
     "fileCount": "Files"
   },
   "actions": {
-    "view": "View Details",
-    "rescape": "Re-scrape",
     "scrape": "Re-scrape",
     "batchScrape": "Batch Re-scrape",
     "batchDelete": "Batch Delete",
     "confirmBatchDeleteTitle": "Delete selected metadata?",
-    "confirmBatchDeleteDesc_one": "This will permanently delete the selected metadata entries.",
-    "confirmBatchDeleteDesc_other": "This will permanently delete the selected metadata entries."
+    "confirmBatchDeleteDesc_one": "This will permanently delete the selected metadata entries",
+    "confirmBatchDeleteDesc_other": "This will permanently delete the selected metadata entries"
   },
   "edit": {
     "title": "Edit Metadata"
   },
   "detail": {
-    "title": "Metadata Detail",
     "fields": {
-      "number": "Number",
       "title": "Title",
       "studio": "Studio",
       "publisher": "Publisher",
@@ -82,29 +80,56 @@
       "poster": "Poster",
       "thumb": "Cover",
       "extrafanart": "Fanart",
-      "fieldSources": "Field Sources",
-      "sources": "Data Sources",
-      "sourceUrls": "External Links",
-      "externalIds": "External IDs"
+      "sourceUrls": "External Links"
     },
     "connections": "Related Files",
     "noFiles": "No related files",
-    "files_one": "{{count}} file",
-    "files_other": "{{count}} files",
+    "openInLibrary": "Open in library",
     "userTags": "User tags",
     "noUserTags": "No user tags yet",
-    "selectUserTag": "Select user tag…",
+    "selectUserTag": "Select or type a user tag…",
     "newUserTagPlaceholder": "Create user tag…",
+    "addUserTag": "Add user tag",
+    "removeUserTag": "Remove user tag",
+    "applyAddUserTags_one": "Add {{count}}",
+    "applyAddUserTags_other": "Add {{count}}",
+    "applyRemoveUserTags_one": "Remove {{count}}",
+    "applyRemoveUserTags_other": "Remove {{count}}",
+    "createUserTag": "Create \"{{name}}\"",
     "detachUserTag": "Remove from this title",
-    "deleteUserTag": "Delete tag",
-    "confirmDeleteUserTag": "Permanently delete user tag \"{{name}}\"? It will be removed from all titles.",
     "comments": "Comments",
-    "noComments": "No comments yet",
     "commentPlaceholder": "Write a comment…",
     "addComment": "Post comment",
+    "editComment": "Edit comment",
+    "commentEditedAt": "(edited {{time}})",
+    "commentJustNow": "just now",
+    "commentSortLabel": "By edit time",
+    "commentSortNewest": "Newest first",
+    "commentSortOldest": "Oldest first",
+    "deleteCommentTitle": "Delete comment",
+    "deleteCommentMessage": "This cannot be undone",
     "playTrailer": "Play trailer",
     "closeTrailer": "Close trailer",
     "coverUnavailable": "Cover unavailable",
+    "playback": "Playback",
+    "playbackFailed": "This stream could not be played",
+    "playbackFailedWithStatus": "This stream could not be played (HTTP {{status}})",
+    "playbackFailedHls": "This stream could not be played (hls.js error type {{details}}): {{url}}",
+    "playbackFailedHlsWithStatus": "This stream could not be played (hls.js error type {{details}}, HTTP {{status}}): {{url}}",
+    "playbackUnsupported": "This source's media type cannot play on this page",
+    "playbackUnavailable": "This source is currently unavailable",
+    "playbackUnavailableOption": "{{name}} (currently unavailable)",
+    "playbackSourcesFailed": "Could not load playback sources",
+    "playbackStreamsFailed": "Could not load the stream list",
+    "playbackSourceLabel": "Playback source",
+    "playbackStreamLabel": "Stream",
+    "playbackVolume": "Volume",
+    "playbackBrightness": "Brightness",
+    "playbackRate": "Playback rate",
+    "playbackToggle": "Play or pause",
+    "playbackClose": "Close",
+    "playbackMuted": "Muted",
+    "commentSeek": "Seek to {{time}}",
     "cropPoster": {
       "action": "Crop poster",
       "title": "Crop poster",
@@ -118,7 +143,11 @@
       "needSelection": "Select a valid region first",
       "success": "Poster updated",
       "noThumb": "A cover image is required to crop a poster"
-    }
+    },
+    "playbackCopyTimestamp": "Copy timestamp",
+    "playbackCopyLink": "Copy link to current time",
+    "playbackCopied": "Copied to clipboard",
+    "playbackCopyFailed": "Copy failed"
   },
   "browse": {
     "title": "Browse",
@@ -140,7 +169,6 @@
     "scrapeQueued": "Actor scrape task queued",
     "person": {
       "aliases": "Aliases",
-      "ruleAliases": "Rule aliases",
       "gender": "Gender",
       "genderFemale": "Female",
       "genderMale": "Male",
@@ -161,8 +189,10 @@
       "sourceUrl": "Source",
       "images": "Photos",
       "cm": "{{value}} cm",
-      "birthdayFormat": "Stored as YYYY-MM-DD (also accepts 1991/1/1 or Japanese date forms)"
-    }
+      "birthdayFormat": "Format: 2000-01-01, 2000/1/1, or 2000年1月1日"
+    },
+    "tagFilms": "Titles",
+    "tagActors": "Actors"
   },
   "view": {
     "grid": "Grid",
@@ -197,12 +227,12 @@
     "batchGenderFailed_one": "Failed to update {{count}} actor",
     "batchGenderFailed_other": "Failed to update {{count}} actors",
     "clearPerson": "Clear info",
-    "clearPersonBody": "Clear photos, bio, and measurements for \"{{name}}\". The actor and filmography stay. Gender and scrape cache are kept; a normal scrape may restore from cache.",
+    "clearPersonBody": "Clear all info for \"{{name}}\" except gender and remove all field locks. Does not delete the entry or scrape cache",
     "clearPersonDone": "Person info cleared",
     "batchClearPerson": "Clear info",
-    "batchClearPersonBody": "Clear person fields for {{count}} selected actors. Entries are not deleted. Gender and scrape cache are kept.",
-    "batchClearPersonBody_one": "Clear person fields for {{count}} selected actor. The entry is not deleted. Gender and scrape cache are kept.",
-    "batchClearPersonBody_other": "Clear person fields for {{count}} selected actors. Entries are not deleted. Gender and scrape cache are kept.",
+    "batchClearPersonBody": "Clear all info except gender for {{count}} actors and remove all field locks. Does not delete entries or scrape cache",
+    "batchClearPersonBody_one": "Clear all info except gender for {{count}} actor and remove all field locks. Does not delete the entry or scrape cache",
+    "batchClearPersonBody_other": "Clear all info except gender for {{count}} actors and remove all field locks. Does not delete entries or scrape cache",
     "batchClearPersonDone": "Cleared person info for {{count}} actor(s)",
     "batchClearPersonDone_one": "Cleared person info for {{count}} actor",
     "batchClearPersonDone_other": "Cleared person info for {{count}} actors",
@@ -216,30 +246,36 @@
     "cupShort": "Cup {{cup}}",
     "filmography": "Filmography ({{count}})",
     "noPhoto": "No photo",
-    "noPersonInfo": "No person info yet",
     "goToLibrary": "Go to library",
     "editTitle": "Edit actor",
-    "genderHint": "When unknown, scrape only uses dual-gender sites (e.g. Wikipedia) — not female-only sites — to avoid false matches.",
-    "genderUnknownHint": "Gender unset: scrape uses dual-gender sites only. Mark Female then re-scrape to fill minnano / gFriends.",
+    "lockManage": "Profile field locks",
+    "cropAvatar": {
+      "action": "Crop photo",
+      "title": "Crop photo",
+      "success": "Photo updated"
+    },
+    "genderHint": "When unknown, only generic sources are queried to avoid false matches. Some sources can fill this field automatically",
+    "genderUnknownHint": "",
     "aliasesHint": "Press Enter or comma to add; click × to remove",
     "setDisplayName": "Set as display name",
-    "setDisplayNameBody": "Make \"{{alias}}\" the display name of \"{{name}}\"? Actor names on related titles will be rewritten; the current display name stays as an alias.",
+    "setDisplayNameBody": "Make \"{{alias}}\" the display name of \"{{name}}\"? \"{{name}}\" will be kept as an alias",
     "setDisplayNameDone": "Display name updated",
     "imagesEdit": "Photo URLs",
-    "imagesEditHint": "First URL is the primary photo (detail + grid). Drag cards to reorder; click to preview.",
+    "imagesEditHint": "First URL is the primary photo (detail + grid). Drag cards to reorder; click to preview",
     "primaryImage": "Primary",
     "reorderImage": "Drag to reorder photo",
     "removeImage": "Remove this photo",
     "rawSources": "Scrape source snapshots",
-    "rawSourcesHint": "Read-only site snapshots for comparison while editing.",
+    "rawSourcesHint": "",
     "filmography_one": "Filmography ({{count}})",
-    "filmography_other": "Filmography ({{count}})"
+    "filmography_other": "Filmography ({{count}})",
+    "viewAll": "View all {{count}}",
+    "viewAll_one": "View all {{count}}",
+    "viewAll_other": "View all {{count}}"
   },
-  "backToList": "Back to list",
   "notFound": "Metadata not found",
   "invalidId": "Invalid metadata ID",
-  "viewFullDetail": "View full detail",
-  "confirmDelete": "Delete metadata #{{id}}? This cannot be undone.",
+  "confirmDelete": "Delete metadata #{{id}}? This cannot be undone",
   "empty": "No metadata records",
   "editor": {
     "title": {
@@ -256,7 +292,7 @@
     },
     "release": {
       "label": "Release Date",
-      "description": "Stored as YYYY-MM-DD; ISO datetimes are trimmed to the calendar day on save"
+      "description": "Format: 2000-01-01"
     },
     "runtime": {
       "label": "Runtime (min)"
@@ -298,9 +334,6 @@
   "manage": {
     "name": "Name",
     "count": "Count",
-    "mergeHint": "{{count}} selected — select sources, then click merge on the target",
-    "mergeHint_one": "{{count}} selected — select sources, then click merge on the target",
-    "mergeHint_other": "{{count}} selected — select sources, then click merge on the target",
     "mergeGuide": "Select sources, then click merge on the target",
     "mergeNeedSources": "Select source items first, then click merge on the target",
     "merge": "Merge into this",
@@ -308,10 +341,10 @@
     "mergeConfirmBody": "Merge {{count}} sources into the target",
     "mergeConfirmBody_one": "Merge {{count}} source into the target",
     "mergeConfirmBody_other": "Merge {{count}} sources into the target",
-    "deleteFacetBody": "Remove \"{{name}}\" from all titles and add it to the blocklist (rescrapes will not recreate it).",
-    "deleteUserTagBody": "Delete user tag \"{{name}}\"? Attachments will be removed.",
+    "deleteFacetBody": "Remove \"{{name}}\" from all titles and add it to the blocklist; later scrapes will drop it",
+    "deleteUserTagBody": "Permanently delete user tag \"{{name}}\"? It will be removed from all titles",
     "rulesTitle": "User rules",
-    "rulesHint": "Aliases and blocklist entries survive rescrapes. Removing a rule does not restore past titles; it only affects future writes.",
+    "rulesHint": "Scrapes rename by alias and drop blocklist names. Removing a rule does not change existing titles",
     "rulesEmpty": "No rules yet",
     "ruleSource": "Source",
     "ruleAction": "Action",
@@ -322,7 +355,7 @@
   },
   "merge": {
     "title": "Compare Sources",
-    "noRawData": "No raw data available for merge.",
+    "noRawData": "No raw data available for merge",
     "apply": "Apply Merge",
     "revert": "Revert",
     "revertAll": "Revert All",
@@ -331,5 +364,14 @@
     "noChanges": "No changes",
     "changedCount_one": "{{count}} field(s) changed",
     "changedCount_other": "{{count}} field(s) changed"
+  },
+  "lock": {
+    "manage": "Metadata Locks",
+    "all": "Lock All",
+    "clearAll": "Unlock All",
+    "locked": "Locked",
+    "unlocked": "Unlocked",
+    "toggleLocked": "Unlock field",
+    "toggleUnlocked": "Lock field"
   }
 }

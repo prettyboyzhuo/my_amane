@@ -8,9 +8,10 @@ import structlog
 
 from ..crawlers.models import FetchOptions, MediaMetadata, SearchQuery
 from ..enums import SiteName
+from ..net.connectivity import ConnectivityOutcome, SkipReason, probe_get
 from ..plugins.api import FilmSourceProvider, PluginContext
 from ..plugins.manager import PluginManager
-from ..plugins.models import PluginConfig
+from ..plugins.models import PluginConfig, SourceDescriptor
 from .actor import ActorFetcher, GFriendsActorCrawler, actor_registry
 from .base import Crawler
 from .registry import registry
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from ..aggregate import CrawlerLike
     from ..config import SiteConfig
     from .actor import ActorCrawler
-    from .base import Crawler
+    from .connectivity import ConnectivityProbe
     from .http import HttpClient
     from .r18dev import R18Database
 
@@ -32,8 +33,16 @@ logger = structlog.get_logger()
 class _PluginProviderAdapter(FilmSourceProvider):
     """Validate plugin fetch results as MediaMetadata; errors bubble to invoke_source."""
 
-    def __init__(self, provider: FilmSourceProvider) -> None:
+    def __init__(
+        self,
+        provider: FilmSourceProvider,
+        *,
+        http_client: HttpClient,
+        descriptor: SourceDescriptor | None = None,
+    ) -> None:
         self._provider = provider
+        self._http = http_client
+        self._descriptor = descriptor
 
     async def fetch(self, query: SearchQuery, options: FetchOptions | None = None) -> MediaMetadata | None:
         result = await self._provider.fetch(query, options)
@@ -41,22 +50,28 @@ class _PluginProviderAdapter(FilmSourceProvider):
             return result
         return MediaMetadata.model_validate(result)
 
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """插件可自定探测入口; 未声明 (``None``) 时按 descriptor 的首个 URL 探测."""
+        outcome = await self._provider.check_connectivity()
+        if outcome is not None:
+            return outcome
+        urls = self._descriptor.urls if self._descriptor is not None else ()
+        if not urls:
+            return ConnectivityOutcome.skipped(SkipReason.NO_URL)
+        return await probe_get(self._http.web_client, urls[0])
+
+
+if TYPE_CHECKING:
+    # 结构性协议没有运行期检查: 在此静态断言适配器满足工厂下游声明的协议.
+    _adapter_crawler_like: type[CrawlerLike] = _PluginProviderAdapter
+    _adapter_connectivity_probe: type[ConnectivityProbe] = _PluginProviderAdapter
+
 
 class CrawlerFactory:
-    """
-    Crawler 实例工厂.
+    """延迟创建并缓存爬虫. 全部共用一个 HttpClient.
 
-    - 所有爬虫共享单个 HttpClient (连接池 + 限速器)
-    - 首次请求时延迟创建实例, 之后缓存复用
-    - SiteConfig 在构造期注入, 缓存的实例在热重载时随工厂一起重建
-    - R18DevCrawler 额外注入只读 R18Database (会话级, 不随热重载重建)
-    - 演员爬虫独立缓存; gFriends 额外注入 data_dir / repo URL
-
-    用法:
-        factory = CrawlerFactory(http_client, site_configs=hot.scraping.site_config)
-        crawler = await factory.get("javdb")
-        crawlers = await factory.get_crawlers(["javdb", "dmm"])
-        actor = await factory.get_actor("minnano")
+    SiteConfig 在构造期注入; 热重载时工厂与缓存实例一并重建.
+    R18Database 为会话级, 不随热重载重建.
     """
 
     def __init__(
@@ -77,41 +92,35 @@ class CrawlerFactory:
         self._gfriends_repo = gfriends_repo
         self._plugin_manager = plugin_manager
         self._plugin_configs = plugin_configs or {}
-        self._instances: dict[str, Crawler] = {}
-        self._plugin_instances: dict[str, _PluginProviderAdapter] = {}
+        self._instances: dict[str, Crawler | FilmSourceProvider] = {}
         self._actor_instances: dict[str, ActorCrawler] = {}
 
     async def get(self, name: str) -> Crawler | FilmSourceProvider | None:
-        """
-        根据名称获取 Crawler 实例 (延迟创建, 缓存复用).
-
-        如果没有以该名称注册的爬虫, 返回 None.
-        """
-        if name in self._instances:
-            return self._instances[name]
+        """内置来源与插件来源共用一份实例缓存; 分派只在此处, 下游只依赖结构性协议."""
+        cached = self._instances.get(name)
+        if cached is not None:
+            return cached
 
         cls = registry.get(name)
-        if cls is None and self._plugin_manager is not None and self._plugin_manager.has_plugin(name):
-            return await self._get_plugin(name)
-        if cls is None:
+        if cls is not None:
+            site_config = self._site_configs.get(name)
+            client = self._http.for_source(name, site_config)
+            # R18DevCrawler 额外注入只读 DB.
+            if cls is R18DevCrawler:
+                instance: Crawler = R18DevCrawler(client=client, config=site_config, db=self._r18_db)
+            else:
+                instance = cls(client=client, config=site_config)
+            self._instances[name] = instance
+            return instance
+
+        manager = self._plugin_manager
+        if manager is None or not manager.has_film_plugin(name):
             logger.error("crawler not registered", name=name)
             return None
+        return await self._get_plugin(manager, name)
 
-        site_config = self._site_configs.get(name)
-        # R18DevCrawler 需要额外注入只读 DB (HTTP 之外的特殊依赖).
-        if cls is R18DevCrawler:
-            instance: Crawler = R18DevCrawler(client=self._http, config=site_config, db=self._r18_db)
-        else:
-            instance = cls(client=self._http, config=site_config)
-        self._instances[name] = instance
-        return instance
-
-    async def _get_plugin(self, name: str) -> FilmSourceProvider | None:
-        """延迟构建并缓存源插件适配器; 插件禁用时返回 None, data_dir 缺失时抛 RuntimeError."""
-        if name in self._plugin_instances:
-            return self._plugin_instances[name]
-        if self._plugin_manager is None:
-            return None
+    async def _get_plugin(self, manager: PluginManager, name: str) -> FilmSourceProvider | None:
+        # 插件禁用返回 None; data_dir 缺失抛 RuntimeError.
         config = self._plugin_configs.get(name, PluginConfig())
         if not config.enabled:
             logger.info("source plugin disabled", source=name)
@@ -120,7 +129,7 @@ class CrawlerFactory:
             raise RuntimeError("data_dir is required for source plugins")
         plugin_dir = self._data_dir / "plugins" / name
         plugin_dir.mkdir(parents=True, exist_ok=True)
-        provider = self._plugin_manager.build_plugin_provider(
+        provider = manager.build_plugin_provider(
             name,
             context=PluginContext(
                 source_id=name,
@@ -130,19 +139,15 @@ class CrawlerFactory:
             ),
             config=config,
         )
-        adapter = _PluginProviderAdapter(provider)
-        self._plugin_instances[name] = adapter
+        adapter = _PluginProviderAdapter(
+            provider,
+            http_client=self._http,
+            descriptor=manager.descriptor(name),
+        )
+        self._instances[name] = adapter
         return adapter
 
     async def get_crawlers(self, names: Iterable[str]) -> dict[str, CrawlerLike]:
-        """
-        根据名称列表获取多个 Crawler 实例.
-
-        跳过没有注册爬虫类的名称.
-
-        Returns:
-            字典, 映射名称到 Crawler 实例 (仅包含成功创建的).
-        """
         result: dict[str, CrawlerLike] = {}
         for name in names:
             try:
@@ -155,7 +160,6 @@ class CrawlerFactory:
         return result
 
     async def get_actor(self, name: str) -> ActorCrawler | None:
-        """按站点名获取 ActorCrawler (延迟创建, 缓存复用)."""
         if name in self._actor_instances:
             return self._actor_instances[name]
 
@@ -165,28 +169,23 @@ class CrawlerFactory:
             return None
 
         site_config = self._site_configs.get(name)
+        client = self._http.for_source(name, site_config)
         if cls is GFriendsActorCrawler:
             instance: ActorCrawler = GFriendsActorCrawler(
-                client=self._http,
+                client=client,
                 config=site_config,
                 data_dir=self._data_dir,
                 repo_url=self._gfriends_repo,
             )
         else:
-            instance = cls(client=self._http, config=site_config)
+            instance = cls(client=client, config=site_config)
         self._actor_instances[name] = instance
         return instance
 
     async def get_actor_crawlers(self, names: Iterable[str]) -> dict[str, ActorFetcher]:
-        """按名称列表获取 ActorCrawler; 跳过未注册项."""
         result: dict[str, ActorFetcher] = {}
         for name in names:
             crawler = await self.get_actor(name)
             if crawler is not None:
                 result[name] = crawler
         return result
-
-    @property
-    def active_crawlers(self) -> dict[str, Crawler]:
-        """当前已实例化的影片爬虫."""
-        return dict(self._instances)

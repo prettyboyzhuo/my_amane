@@ -1,4 +1,4 @@
-"""Wikidata 搜索 + 维基百科页面简介解析 (演员元数据)."""
+"""Wikidata 搜索 + 维基百科简介. CJK 不允许单独匹配「女優/女优/男優」."""
 
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ from ...parsing import extract_text
 from ..base import ActorCrawler
 from ..models import ActorMetadata
 
-# 描述关键词: 拉丁短语子串 (大小写不敏感) / CJK 限定 AV 语境.
-# CJK 不能收裸的 女優/女优/男優 (日语 女優 = 普通女演员, 多语言搜索会带进普通演员).
+# 拉丁短语子串大小写不敏感. 日语「女優」= 普通女演员, 单独匹配会带入非 AV 条目.
 _AV_KEYWORDS: tuple[str, ...] = (
     "av idol",
     "av actress",
@@ -43,15 +42,13 @@ _AV_KEYWORDS: tuple[str, ...] = (
     "成人影片",
 )
 
-# 英文描述里行业词与角色词分离出现时兜底 (如 "Japanese adult video actress").
+# 英文描述里行业词与角色词分离出现时仍算命中 (如 "Japanese adult video actress").
 _AV_INDUSTRY_RE = re.compile(r"\b(?:av|adult|porn|xxx)\b", re.IGNORECASE)
 _AV_ROLE_RE = re.compile(r"\b(?:actress|actor|idol|model|star)\b", re.IGNORECASE)
 
-# 多语言搜索顺序: ja 标签最全 (日本 AV 从业者), zh 次之, en 兜底.
 _SEARCH_LANGUAGES: tuple[str, ...] = ("ja", "zh", "en")
 _SEARCH_CANDIDATE_LIMIT = 5
 
-# Wikidata P106 职业中 AV 相关条目.
 _AV_OCCUPATIONS: frozenset[str] = frozenset(
     {
         "Q1079215",  # AV女優 / AV idol
@@ -68,8 +65,6 @@ _P21_GENDER: dict[str, ActorGender] = {
 
 
 class WikipediaActorCrawler(ActorCrawler):
-    """Wikidata 搜索 + 维基百科页面简介."""
-
     @classmethod
     def profile(cls) -> CrawlerProfile:
         return CrawlerProfile(
@@ -87,8 +82,8 @@ class WikipediaActorCrawler(ActorCrawler):
         )
 
     async def fetch(self, name: str) -> ActorMetadata | None:
-        """多语言搜索候选 → 逐候选校验实体 (全语言描述 / P106 职业) → 构建元数据."""
         candidates = await self._wikidata_search(name)
+        # 逐候选校验实体 (描述 / P106 职业).
         for qid, desc in candidates:
             entity = await self._entity_data(qid)
             if entity is None:
@@ -104,9 +99,9 @@ class WikipediaActorCrawler(ActorCrawler):
         raise NotImplementedError("WikipediaActorCrawler overrides fetch()")
 
     async def _wikidata_search(self, name: str) -> list[tuple[str, str | None]]:
-        """多语言 (ja/zh/en) wbsearchentities; 描述命中 AV 关键词者按语言顺序去重.
+        """ja/zh/en wbsearchentities; 描述命中 AV 关键词者按语言顺序去重.
 
-        单语言失败不阻断; 全部失败时冒泡最后一次异常 (契约见 docs/dev/crawlers.md 多 URL 试探).
+        单语言失败不阻断; 全部失败时冒泡最后一次异常.
         """
         out: dict[str, str | None] = {}
         last_error: SourceError | None = None
@@ -168,6 +163,7 @@ class WikipediaActorCrawler(ActorCrawler):
         birthplace: str | None = None
         source_url: str | None = None
         wiki_url = _prefer_wiki_url(sitelinks)
+        # 维基正文用 get_text: 引用里「年齢認証」等词会让 get_html 误判拦截.
         if wiki_url:
             source_url = wiki_url
             page = await self.client.get_text(wiki_url, cookies=self.cookies)
@@ -179,7 +175,7 @@ class WikipediaActorCrawler(ActorCrawler):
         if not source_url:
             source_url = f"https://www.wikidata.org/wiki/{qid}"
 
-        # tagline: 搜索 description 优先, 否则实体 descriptions
+        # tagline 未命中则回退实体 descriptions.
         if not tagline:
             descs_raw = entity.get("descriptions")
             descs: dict[str, Any] = descs_raw if isinstance(descs_raw, dict) else {}
@@ -211,7 +207,6 @@ def _match_av_keyword(description: str) -> bool:
 
 
 def _is_av_entity(entity: dict[str, Any]) -> bool:
-    """全语言描述关键词命中, 或 P106 职业含 AV 相关条目."""
     return _descriptions_match(entity) or _occupation_match(entity)
 
 
@@ -226,7 +221,6 @@ def _descriptions_match(entity: dict[str, Any]) -> bool:
 
 
 def _occupation_match(entity: dict[str, Any]) -> bool:
-    """P106 职业 claims 含 _AV_OCCUPATIONS 任一条目."""
     claims = entity.get("claims")
     if not isinstance(claims, dict):
         return False
@@ -300,7 +294,6 @@ def _claim_time(entity: dict[str, Any], pid: str) -> str | None:
 
 
 def _claim_gender(entity: dict[str, Any]) -> ActorGender | None:
-    """Wikidata P21 → female/male; 其它/缺失返回 None."""
     claims = entity.get("claims")
     if not isinstance(claims, dict):
         return None
@@ -323,7 +316,6 @@ def _claim_gender(entity: dict[str, Any]) -> ActorGender | None:
 
 
 def _claim_commons_image(entity: dict[str, Any]) -> str | None:
-    """Wikidata P18 (commonsMedia) → Commons Special:FilePath 直链."""
     claims = entity.get("claims")
     if not isinstance(claims, dict):
         return None
@@ -339,7 +331,7 @@ def _claim_commons_image(entity: dict[str, Any]) -> str | None:
     filename = datavalue.get("value")
     if not isinstance(filename, str) or not filename.strip():
         return None
-    # Special:FilePath 会 302 到实际 upload URL; 空格等需编码.
+    # Special:FilePath 会 302 到实际 upload URL; 空格等必须编码.
     return f"https://commons.wikimedia.org/wiki/Special:FilePath/{quote(filename.strip())}"
 
 

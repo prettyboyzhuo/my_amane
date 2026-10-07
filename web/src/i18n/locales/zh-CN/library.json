@@ -1,23 +1,12 @@
 {
   "title": "媒体库",
-  "mediaFilesTitle": "媒体文件",
   "searchPlaceholder": "搜索路径或番号...",
   "deleteLibrary": {
     "confirmTitle": "删除媒体库",
-    "confirmDesc": "此操作将永久删除媒体库「{{name}}」及其包含的 {{count}} 条媒体文件记录（不影响磁盘上的实际文件），且无法撤销。",
-    "confirmDescEmpty": "此操作将永久删除媒体库「{{name}}」，且无法撤销。",
+    "confirmDescEmpty": "此操作将永久删除媒体库「{{name}}」，且无法撤销",
     "tooltip": "删除此媒体库"
   },
   "scan": {
-    "button": "扫描",
-    "dialogTitle": "扫描: {{name}}",
-    "dialogDesc": "配置扫描选项",
-    "submit": "开始扫描",
-    "scanLabel": "扫描文件",
-    "scrapeLabel": "刮削",
-    "useCacheLabel": "使用缓存",
-    "organizeLabel": "扫描后整理",
-    "emptyWarning": "请至少选择一项扫描选项。",
     "menuLabel": "选择扫描操作",
     "modes": {
       "add": {
@@ -26,12 +15,12 @@
       },
       "remove": {
         "label": "清理失效记录",
-        "desc": "删除磁盘上已不存在的文件的数据库记录"
+        "desc": "删除磁盘上已不存在的文件记录"
       }
     }
   },
   "organize": {
-    "tooltip": "整理媒体库文件"
+    "tooltip": "整理落盘"
   },
   "columns": {
     "number": "番号",
@@ -45,7 +34,8 @@
   "actions": {
     "scrape": "刮削",
     "scrapeWithNumber": "指定番号刮削",
-    "batchScrape": "批量刮削"
+    "batchScrape": "批量刮削",
+    "batchOrganize": "批量整理"
   },
   "scrapeOverride": {
     "title": "指定番号刮削",
@@ -67,18 +57,11 @@
   },
   "batch": {
     "confirmDeleteTitle": "删除媒体文件",
-    "confirmDeleteDesc": "确定要删除 {{count}} 个已选媒体文件吗？此操作不可撤销。"
+    "confirmDeleteDesc": "确定要删除 {{count}} 个已选媒体文件吗？此操作不可撤销"
   },
   "detail": {
-    "title": "媒体详情",
-    "size": "大小",
-    "metadata": "元数据",
-    "metadataId": "关联元数据 #{{id}}",
-    "markSkip": "标记为跳过",
-    "unskip": "取消跳过",
     "confirmDeleteTitle": "删除媒体文件",
-    "confirmDeleteDesc": "确定要删除此媒体文件吗？此操作不可撤销。",
-    "deleteHint": "Deleting only removes the record, not the file itself."
+    "confirmDeleteDesc": "确定要删除此媒体文件吗？此操作不可撤销"
   },
   "filters": {
     "title": "按状态筛选",
@@ -88,12 +71,7 @@
     "failed": "失败",
     "skip": "跳过"
   },
-  "pagination": {
-    "page": "第 {{current}} 页，共 {{total}} 页（{{count}} 条记录）"
-  },
   "empty": "未找到媒体文件",
-  "noSelection": "选择媒体库",
-  "noSelectionHint": "从侧边栏选择一个媒体库以查看和管理其媒体文件，或添加新的媒体库。",
   "configureLibrary": "配置媒体库",
   "backToList": "返回列表",
   "notFound": "未找到媒体库",
@@ -105,6 +83,14 @@
     "watch": "仅入库",
     "scrape": "入库并刮削"
   },
+  "ingest": {
+    "label": "文件监控",
+    "hint": "Webhook 需会员, 性能好于监听挂载路径",
+    "native": "本地文件",
+    "clouddrive": "CD2 webhook",
+    "cloudPath": "CloudDrive 路径",
+    "cloudPathHint": "库路径对应的 CloudDrive2 内的路径"
+  },
   "recursive": "递归扫描",
   "nonRecursive": "非递归扫描",
   "emptyList": "未配置媒体库",
@@ -113,19 +99,19 @@
   "placeholder": "/path/to/media/directory",
   "fieldRecursive": "递归",
   "fieldPatterns": "匹配模式",
-  "fieldPatternsHint": "逗号分隔的 glob 模式",
+  "fieldPatternsHint": "逗号分隔的 glob, 如 *.mp4,*.mkv",
   "fieldTrailerPattern": "预告片文件名正则",
-  "fieldTrailerPatternHint": "匹配文件名（含扩展名）则扫描/监控跳过；空串关闭。默认匹配 trailer",
+  "fieldTrailerPatternHint": "匹配则视为预告片, 跳过扫描和监控",
   "fieldBlacklistPatterns": "黑名单正则",
-  "fieldBlacklistPatternsHint": "每行一个正则；扫描时跳过命中的文件，整理时移到 .amane_trash",
+  "fieldBlacklistPatternsHint": "每行一条正则, 匹配则视为垃圾文件, 扫描时跳过, 清理时列为候选",
   "fieldMinFileSize": "最小视频体积",
-  "fieldMinFileSizeHint": "扫描时跳过小于此大小的视频，整理时移动到 .amane_trash。仅适用于视频",
+  "fieldMinFileSizeHint": "小于此大小的视频视为垃圾文件, 清理时列为候选",
   "fieldSubtitleExtensions": "字幕扩展名",
   "fieldSubtitleExtensionsHint": "逗号分隔",
   "fieldMoveMode": "文件操作模式",
   "fieldWriteNfo": "写入 NFO",
   "fieldCopyResources": "整理时复制",
-  "fieldCopyResourcesHint": "复制到库路径的附属资源；任务提交时可覆盖",
+  "fieldCopyResourcesHint": "",
   "copyResource": {
     "thumb": "封面",
     "poster": "海报",
@@ -139,9 +125,9 @@
     "symlink": "符号链接"
   },
   "fieldVideoTemplate": "视频路径模板",
-  "fieldVideoTemplateHint": "相对库根或绝对路径; 可用占位符见下方徽章",
+  "fieldVideoTemplateHint": "可使用相对或绝对路径, 可用占位符见下方徽章",
   "fieldLinkTemplate": "链接路径模板",
-  "fieldLinkTemplateHint": "整理时在此路径创建 strm 或软链接, 必须是库根之外的绝对路径. 留空则不创建",
+  "fieldLinkTemplateHint": "整理时在此路径创建 strm /软链接. 必须是库外的绝对路径",
   "fieldLinkTemplatePlaceholder": "例如 /local/emby/{studio}/{number}/{number}.{ext}",
   "fieldLinkMode": "链接方式",
   "linkMode": {
@@ -156,16 +142,20 @@
   "optionalTemplateDefault": "默认: {{default}}",
   "placeholders": {
     "label": "可用占位符",
-    "hint": "点击复制.",
+    "hint": "点击复制",
     "docs": "参考文档",
     "copied": "已复制 {{placeholder}} 到剪贴板",
     "copyFailed": "复制失败, 请手动复制",
     "mapKeys": "可映射规范值: {{keys}}",
     "items": {
       "number": "番号",
+      "prefix": "番号前缀. 例 MIDV-123 → MIDV",
+      "suffix": "番号去掉前缀后的剩余段. 例 MIDV-123 → 123",
       "title": "标题",
       "actor": "第一位演员",
       "actors": "全部演员, 逗号分隔",
+      "actress": "第一位女演员",
+      "actresses": "女演员, 逗号分隔",
       "studio": "制作商",
       "publisher": "发行商",
       "series": "系列",
@@ -175,12 +165,13 @@
       "raw_name": "源视频文件名. 例 A/B.mp4 → B",
       "raw_dir": "源文件父目录名. 例 A/B/C.mp4 → B",
       "mosaic?": "[可空]马赛克情况",
+      "content_type": "内容类型",
       "def?": "[可空]分辨率(文件名检测)",
       "cd?": "[可空]分集序号",
       "sub?": "[可空]字幕情况",
       "video_dir": "整理后视频所在目录. 链接模板与附属资源模板可用",
       "video_name": "整理后视频文件名 (不含扩展名). 链接模板与附属资源模板可用",
-      "video_relpath": "整理后视频相对库根的路径. 链接模板、附属资源模板与 STRM 内容模板可用",
+      "video_relpath": "整理后视频相对库根目录的路径. 链接模板、附属资源模板与 STRM 内容模板可用",
       "link_dir": "链接所在目录; 未设置链接模板时同 {video_dir}",
       "link_name": "整理后链接文件名 (不含扩展名); 未设置链接模板时同 {video_name}",
       "raw_srt_name": "字幕源文件名. 例 A/foo.zh.srt → foo.zh"
@@ -194,5 +185,53 @@
     "nfo": "NFO 模板",
     "trailer": "预告片模板",
     "subtitle": "字幕模板"
+  },
+  "cleanup": {
+    "tooltip": "清理无效文件与空目录",
+    "title": "清理无效文件",
+    "scan": "开始扫描",
+    "rescan": "重新扫描",
+    "scanStarted": "扫描已开始",
+    "deleteStarted": "删除已开始",
+    "scope": "本次清单只覆盖 {{path}}",
+    "truncated": "文件过多, 仅包含部分结果",
+    "truncatedMore": "另有 {{count}} 项未纳入",
+    "skipped": "本次未覆盖 {{dirs}} 个目录与 {{files}} 个文件",
+    "selected": "已选 {{count}} 项, 约 {{size}}",
+    "empty": "没有需要清理的条目",
+    "expand": "展开",
+    "willBeEmpty": "将变空",
+    "hardlink": "硬链接",
+    "hardlinkHint": "删除不额外释放空间",
+    "nodeCount": "{{count}} 项",
+    "confirmTitle": "确认删除",
+    "confirmMessage": "将删除 {{count}} 项, 约 {{size}}. 删除不可撤销, 索引随条目一并清理.",
+    "confirmLabel": "删除",
+    "deleteSelected": "删除选中项",
+    "reason": {
+      "blacklist": "黑名单",
+      "undersized": "体积过小",
+      "empty_dir": "空目录",
+      "explicit": "手动选中"
+    },
+    "notice": {
+      "missing": "已不在磁盘上: {{path}}",
+      "outside_root": "文件不在库根内, 请重新保存媒体库路径: {{path}}",
+      "work_dir_is_root": "作品目录就是库根, 不提供整目录删除",
+      "work_dir_multiple": "目录内有 {{count}} 条媒体索引, 不提供整目录删除: {{path}}",
+      "template_error": "模板无法解析, 产物未纳入: {{path}} ({{detail}})"
+    },
+    "tabRules": "无效文件",
+    "tabTrash": "回收站",
+    "previewTitle": "确认要删除的内容",
+    "deleteMenu": "删除",
+    "deleteRecord": "只删除记录",
+    "deleteFiles": "删除文件",
+    "deleteWorkDir": "删除所在目录",
+    "scanning": "正在扫描无效文件…",
+    "scanningHint": "可以关掉面板, 扫描在后台继续",
+    "scanFailed": "上次扫描失败",
+    "symlink": "链接",
+    "symlinkHint": "删除的是库内链接本身, 不影响它指向的源文件"
   }
 }

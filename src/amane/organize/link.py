@@ -1,5 +1,3 @@
-"""ORGANIZE 在 link_template 位置创建指向真实视频的 strm 或软链接."""
-
 from pathlib import Path
 
 from ..enums import LinkMode
@@ -15,9 +13,7 @@ def create_video_link(
     *,
     content: str | None = None,
 ) -> OrganizeResult:
-    """在 link_path 创建指向 target 的 strm 或软链接.
-
-    strm 默认写 target 的绝对路径 (一行 + 换行); content 非空时用该正文.
+    """strm 默认写 target 的绝对路径 (一行 + 换行); content 非空时用该正文.
     已就位则成功不改写. 占用路径若不是可替换的链接产物 (已有 strm / 软链接) 则拒绝覆盖.
     """
     try:

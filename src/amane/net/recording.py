@@ -4,7 +4,8 @@ WebClient 不依赖 observability; 由 observability.recorder 在导入时
 ``bind_http_recorder_lookup(get_recorder)`` 注入查找函数.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import Protocol
 
@@ -41,8 +42,18 @@ def skip_http_body() -> bool:
     return _skip_http_body_ctx.get()
 
 
+@contextmanager
+def skip_body_recording() -> Iterator[None]:
+    """请求期间跳过 body 落盘, 只记 meta (get_bytes / download / solver 响应)."""
+    token = set_skip_http_body(True)
+    try:
+        yield
+    finally:
+        reset_skip_http_body(token)
+
+
 def bind_http_recorder_lookup(lookup: Callable[[], HttpExchangeRecorder | None]) -> None:
-    """注入当前任务 Recorder 的查找函数 (通常为 observability.get_recorder)."""
+    """通常为 observability.get_recorder."""
     global _recorder_lookup
     _recorder_lookup = lookup
 

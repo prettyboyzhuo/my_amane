@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  Divider,
   Group,
   Modal,
   Paper,
@@ -9,7 +10,6 @@ import {
   Text,
   TextInput,
   Title,
-  Tooltip,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconClockPlay, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
@@ -28,6 +28,7 @@ import {
 } from "@/client/@tanstack/react-query.gen";
 import type { ScheduleCreateRequest, ScheduleResponse } from "@/client/types.gen";
 import { CronPicker, CronSummary } from "@/components/cron-picker";
+import { SchedulePayloadFacts, SchedulePayloadSummary } from "@/components/schedule/payload-view";
 import { DiscriminatedSchemaForm } from "@/components/schema-form/discriminated-schema-form";
 import { extractErrorMessage } from "@/lib/api-error";
 import { confirm } from "@/lib/confirm";
@@ -186,17 +187,15 @@ function SchedulesPage() {
                     })
                   }
                 />
-                <Tooltip label={t("actions.trigger")}>
-                  <Button
-                    size="xs"
-                    variant="light"
-                    leftSection={<IconClockPlay size={14} />}
-                    loading={triggerMutation.isPending}
-                    onClick={() => triggerMutation.mutate({ path: { schedule_id: schedule.id } })}
-                  >
-                    {t("actions.trigger")}
-                  </Button>
-                </Tooltip>
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconClockPlay size={14} />}
+                  loading={triggerMutation.isPending}
+                  onClick={() => triggerMutation.mutate({ path: { schedule_id: schedule.id } })}
+                >
+                  {t("actions.trigger")}
+                </Button>
                 <Button
                   size="xs"
                   variant="light"
@@ -222,9 +221,12 @@ function SchedulesPage() {
                 </Button>
               </Group>
             </Group>
-            <Badge mt="xs" size="sm" variant="light">
-              {t(`tasks:filters.${schedule.task_type}`)}
-            </Badge>
+            <Group mt="xs" gap="xs" wrap="wrap">
+              <Badge size="sm" variant="light">
+                {t(`tasks:filters.${schedule.task_type}`)}
+              </Badge>
+              <SchedulePayloadSummary payload={schedule.payload} />
+            </Group>
           </Paper>
         ))}
       </Stack>
@@ -292,6 +294,12 @@ function SchedulesPage() {
             checked={editEnabled}
             onChange={(e) => setEditEnabled(e.currentTarget.checked)}
           />
+          {editing != null && (
+            <>
+              <Divider />
+              <SchedulePayloadFacts payload={editing.payload} />
+            </>
+          )}
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setEditing(null)}>
               {t("common:actions.cancel")}

@@ -1,15 +1,26 @@
-from collections.abc import Sequence
-from typing import Unpack
+from collections.abc import Collection, Sequence
+from datetime import datetime
+from typing import Unpack, cast
 
 from sqlalchemy import asc
-from sqlalchemy import delete as sqla_delete
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ...enums import ActorField, ActorGender
+from ...utils.text import normalize_long_text
 from ..actor_lookup import build_actor_lookup_names, list_actor_aliases, lookup_actors_by_name
-from ..actor_person import actor_to_aggregated, apply_aggregated_to_actor
+from ..actor_person import (
+    actor_to_aggregated,
+    apply_aggregated_to_actor,
+    filter_locked_person_data,
+    locked_fields_of,
+)
 from ..models import (
     SCRAPE_FACET_KINDS,
     Actor,
+    ActorSortField,
+    ActorUserTag,
     Comment,
     Director,
     FacetKind,
@@ -30,7 +41,10 @@ from ..repo_types import (
     ActorPersonFields,
     CommentUpdates,
     FacetItem,
+    UserTagLinkAction,
+    UserTagLinkResult,
     UserTagUpdates,
+    WriteMode,
     _utcnow,
 )
 from .actor_browse import browse_actors
@@ -39,6 +53,8 @@ from .facet_helpers import (
     LINK_FACETS,
     SCALAR_FACETS,
     add_one_actor_alias,
+    apply_user_tags_to_actors,
+    apply_user_tags_to_metadata,
     delete_link_facet,
     delete_scalar_facet,
     get_facet,
@@ -46,6 +62,7 @@ from .facet_helpers import (
     merge_link_facets,
     merge_scalar_facets,
     normalize_names,
+    purge_user_tag_links,
     remove_one_actor_alias,
     rename_link_facet,
     rename_scalar_facet,
@@ -53,43 +70,86 @@ from .facet_helpers import (
 )
 
 
+async def _rows_by_names[T: Actor | Director | Tag | Studio | Publisher | Series](
+    session: AsyncSession, model: type[T], names: Sequence[str]
+) -> list[T]:
+    """按 UNIQUE 展示名批量取回; 空名单不发 ``IN ()``."""
+    unique = list(dict.fromkeys(n for n in names if n))
+    if not unique:
+        return []
+    return list((await session.exec(select(model).where(col(model.name).in_(unique)))).all())
+
+
+async def _ensure_user_tags_once(session: AsyncSession, names: Sequence[str]) -> tuple[list[UserTag], int]:
+    """一次尝试: 按名称取回已存在的行, 其余插入; 撞唯一索引由调用方回滚重试."""
+    existing = {
+        row.name: row for row in (await session.exec(select(UserTag).where(col(UserTag.name).in_(names)))).all()
+    }
+    created = 0
+    for name in names:
+        if name in existing:
+            continue
+        tag = UserTag(name=name)
+        session.add(tag)
+        existing[name] = tag
+        created += 1
+    await session.flush()
+    tags = [existing[name] for name in names]
+    await session.commit()
+    return tags, created
+
+
+_ACTOR_FIELD_NAMES = frozenset(str(field) for field in ActorField)
+
+
+def _merge_written_locks(locked: set[ActorField], field_names: Collection[str]) -> list[str]:
+    """MANUAL 写入: 把本次写入的可锁字段并入锁定集, 按枚举声明序输出."""
+    written = {ActorField(name) for name in field_names if name in _ACTOR_FIELD_NAMES}
+    return [str(field) for field in ActorField if field in locked | written]
+
+
 class FacetsRepoMixin(RepositoryMixinBase):
     async def resolve_metadata_facet_ids(
         self, meta: Metadata
-    ) -> tuple[dict[str, int], dict[str, int], dict[str, int], int | None, int | None, int | None]:
-        """将 metadata 上的名称解析为分类实体 id (供详情页 Badge 跳转)."""
+    ) -> tuple[
+        dict[str, int],
+        dict[str, ActorGender],
+        dict[str, int],
+        dict[str, int],
+        int | None,
+        int | None,
+        int | None,
+    ]:
+        """名称 → 分类实体 id; 演员额外带已装入行上的 gender. 未投影的名称不出现."""
         async with self._session() as session:
             actor_ids: dict[str, int] = {}
-            for name in normalize_names(meta.actors):
-                row = (await session.exec(select(Actor).where(Actor.name == name))).first()
-                if row is not None and row.id is not None:
-                    actor_ids[name] = row.id
-            director_ids: dict[str, int] = {}
-            for name in normalize_names(meta.directors):
-                row = (await session.exec(select(Director).where(Director.name == name))).first()
-                if row is not None and row.id is not None:
-                    director_ids[name] = row.id
-            tag_ids: dict[str, int] = {}
-            for name in normalize_names(meta.tags):
-                row = (await session.exec(select(Tag).where(Tag.name == name))).first()
-                if row is not None and row.id is not None:
-                    tag_ids[name] = row.id
-            studio_id: int | None = None
-            if meta.studio:
-                row = (await session.exec(select(Studio).where(Studio.name == meta.studio))).first()
-                if row is not None:
-                    studio_id = row.id
-            publisher_id: int | None = None
-            if meta.publisher:
-                row = (await session.exec(select(Publisher).where(Publisher.name == meta.publisher))).first()
-                if row is not None:
-                    publisher_id = row.id
-            series_id: int | None = None
-            if meta.series:
-                row = (await session.exec(select(Series).where(Series.name == meta.series))).first()
-                if row is not None:
-                    series_id = row.id
-            return actor_ids, director_ids, tag_ids, studio_id, publisher_id, series_id
+            actor_genders: dict[str, ActorGender] = {}
+            for row in await _rows_by_names(session, Actor, normalize_names(meta.actors)):
+                if row.id is not None:
+                    actor_ids[row.name] = row.id
+                    actor_genders[row.name] = row.gender
+            director_ids = {
+                row.name: row.id
+                for row in await _rows_by_names(session, Director, normalize_names(meta.directors))
+                if row.id is not None
+            }
+            tag_ids = {
+                row.name: row.id
+                for row in await _rows_by_names(session, Tag, normalize_names(meta.tags))
+                if row.id is not None
+            }
+            studio = (await _rows_by_names(session, Studio, [meta.studio] if meta.studio else []))[:1]
+            publisher = (await _rows_by_names(session, Publisher, [meta.publisher] if meta.publisher else []))[:1]
+            series = (await _rows_by_names(session, Series, [meta.series] if meta.series else []))[:1]
+            return (
+                actor_ids,
+                actor_genders,
+                director_ids,
+                tag_ids,
+                studio[0].id if studio else None,
+                publisher[0].id if publisher else None,
+                series[0].id if series else None,
+            )
 
     async def list_facets(
         self,
@@ -100,7 +160,6 @@ class FacetsRepoMixin(RepositoryMixinBase):
         sort_by: FacetSortField = FacetSortField.NAME,
         order: SortOrder = SortOrder.ASC,
     ) -> tuple[list[FacetItem], int]:
-        """分页列出分类目录条目及关联影片数."""
         async with self._session() as session:
             return await list_facets(
                 session, kind, search=search, offset=offset, limit=limit, sort_by=sort_by, order=order
@@ -115,7 +174,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return await session.get(Actor, actor_id)
 
     async def get_actor_names(self, actor_ids: Sequence[int]) -> dict[int, str]:
-        """批量取 Actor 名 (任务列表标题投影用); 不存在的 id 不出现在结果中."""
+        """不存在的 id 不出现在结果中."""
         ids = list(dict.fromkeys(int(i) for i in actor_ids if i))
         if not ids:
             return {}
@@ -124,7 +183,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return {int(i): str(n) for i, n in rows if i is not None}
 
     async def get_actors_by_names(self, names: Sequence[str]) -> list[Actor]:
-        """按规范名批量查 Actor 行 (链式刮削跳过判断用); 不存在的名字不出现在结果中."""
+        """按展示名批量查; 不存在的名字不出现."""
         unique = list(dict.fromkeys(n for n in names if n))
         if not unique:
             return []
@@ -133,30 +192,43 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return list((await session.exec(stmt)).all())
 
     async def get_actor_lookup_names(self, actor_id: int) -> list[str] | None:
-        """刮削查找名; Actor 不存在返回 None."""
+        """展示名加别名行. Actor 不存在返回 None."""
         async with self._session() as session:
             actor = await session.get(Actor, actor_id)
             if actor is None:
                 return None
             return await build_actor_lookup_names(session, actor)
 
-    async def list_actors(self, *, offset: int = 0, limit: int = 500) -> list[Actor]:
-        """分页列出 Actor 行 (cleanup 收集 image_urls 等)."""
+    async def list_actors(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 500,
+        sort_by: ActorSortField | None = None,
+        updated_before: datetime | None = None,
+    ) -> list[Actor]:
+        """默认按 id 升序分页. ``sort_by`` 指定时改用该列; ``updated_before`` 过滤 updated_at."""
         async with self._session() as session:
-            stmt = select(Actor).offset(offset).limit(limit).order_by(asc(col(Actor.id)))
-            return list((await session.exec(stmt)).all())
+            stmt = select(Actor)
+            if updated_before is not None:
+                stmt = stmt.where(col(Actor.updated_at) < updated_before)
+            if sort_by == ActorSortField.UPDATED_AT:
+                stmt = stmt.order_by(asc(col(Actor.updated_at)), asc(col(Actor.id)))
+            else:
+                stmt = stmt.order_by(asc(col(Actor.id)))
+            return list((await session.exec(stmt.offset(offset).limit(limit))).all())
 
     async def browse_actors(
         self, params: ActorBrowseParams, *, id_subquery_sql: str | None = None
     ) -> tuple[list[ActorBrowseItem], int]:
-        """演员浏览分页列表 (人物摘要 + 影片 count)."""
+        """列表行不含简介/别名/源字典."""
         async with self._session() as session:
             return await browse_actors(session, params, id_subquery_sql=id_subquery_sql)
 
     async def save_actor(self, actor: Actor, *, aliases: Sequence[str] | None = None) -> Actor | None:
-        """将已修改的 Actor 人物字段持久化; 不存在返回 None.
+        """不存在返回 None. ``aliases`` 提供时整表替换别名行; 省略则不动别名.
 
-        ``aliases`` 提供时整表替换该演员别名行 (刮削回写 / 测试用); 省略不动别名行.
+        AUTO 写入 (演员刮削), 锁定字段保留库内值与来源; 手动字段写入走 ``update_actor``.
         """
         if actor.id is None:
             return None
@@ -164,7 +236,11 @@ class FacetsRepoMixin(RepositoryMixinBase):
             db = await session.get(Actor, actor.id)
             if db is None:
                 return None
-            apply_aggregated_to_actor(db, actor_to_aggregated(actor))
+            data = actor_to_aggregated(actor)
+            locked = locked_fields_of(db)
+            if locked:
+                data = filter_locked_person_data(data, locked=locked, current=actor_to_aggregated(db))
+            apply_aggregated_to_actor(db, data)
             db.updated_at = _utcnow()
             session.add(db)
             if aliases is not None:
@@ -174,12 +250,12 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return db
 
     async def get_actor_aliases(self, actor_id: int) -> list[str]:
-        """演员别名行 (保序); 不含展示名."""
+        """保序; 不含展示名."""
         async with self._session() as session:
             return await list_actor_aliases(session, actor_id)
 
     async def lookup_actors_by_name(self, name: str) -> list[Actor]:
-        """只读名字→演员候选 (展示名命中 + 别名行命中); 不创建实体."""
+        """只读候选, 不创建实体."""
         async with self._session() as session:
             return await lookup_actors_by_name(session, name)
 
@@ -204,15 +280,32 @@ class FacetsRepoMixin(RepositoryMixinBase):
                 await session.commit()
             return ok
 
-    async def update_actor(self, actor_id: int, **updates: Unpack[ActorPersonFields]) -> Actor | None:
-        """按字段更新 Actor 人物元数据; 不改 name/id. 不存在返回 None.
+    async def update_actor(
+        self, actor_id: int, *, mode: WriteMode = WriteMode.AUTO, **updates: Unpack[ActorPersonFields]
+    ) -> Actor | None:
+        """不修改 name/id. 不存在返回 None. ``aliases`` 经 ``replace_actor_aliases`` 整表替换.
 
-        ``aliases`` 走 ``replace_actor_aliases`` 整表替换 (保序).
+        写入策略见 ``WriteMode``; 手动调用点须显式传 ``MANUAL``.
         """
         async with self._session() as session:
             actor = await session.get(Actor, actor_id)
             if actor is None:
                 return None
+            locked = locked_fields_of(actor)
+            if mode is WriteMode.AUTO and locked:
+                filtered: dict[str, object] = {
+                    key: value
+                    for key, value in updates.items()
+                    if key not in _ACTOR_FIELD_NAMES or ActorField(key) not in locked
+                }
+                sources = filtered.get("field_sources")
+                if isinstance(sources, dict):
+                    preserved = {key: value for key, value in (actor.field_sources or {}).items() if key in locked}
+                    filtered["field_sources"] = {
+                        **preserved,
+                        **{key: value for key, value in sources.items() if key not in locked},
+                    }
+                updates = cast("ActorPersonFields", filtered)
             if "aliases" in updates:
                 await replace_actor_aliases(session, actor, updates["aliases"])
             if "gender" in updates:
@@ -232,7 +325,7 @@ class FacetsRepoMixin(RepositoryMixinBase):
             if "cup" in updates:
                 actor.cup = updates["cup"]
             if "overview" in updates:
-                actor.overview = updates["overview"]
+                actor.overview = normalize_long_text(updates["overview"])
             if "tagline" in updates:
                 actor.tagline = updates["tagline"]
             if "image_urls" in updates:
@@ -245,6 +338,51 @@ class FacetsRepoMixin(RepositoryMixinBase):
                 actor.field_sources = updates["field_sources"]
             if "raw" in updates:
                 actor.raw = updates["raw"]
+            if mode is WriteMode.MANUAL:
+                actor.locked_fields = _merge_written_locks(locked, updates.keys())
+            actor.updated_at = _utcnow()
+            session.add(actor)
+            await session.commit()
+            await session.refresh(actor)
+            return actor
+
+    async def set_actor_locks(self, actor_id: int, fields: Collection[ActorField]) -> Actor | None:
+        """整体替换锁定字段集合, 不修改 ``updated_at``. 不存在返回 None."""
+        async with self._session() as session:
+            actor = await session.get(Actor, actor_id)
+            if actor is None:
+                return None
+            wanted = set(fields)
+            actor.locked_fields = [str(field) for field in ActorField if field in wanted]
+            session.add(actor)
+            await session.commit()
+            await session.refresh(actor)
+            return actor
+
+    async def clear_actor_person(self, actor_id: int) -> Actor | None:
+        """清空人物档案并解除全部锁 (保留 ``name`` / ``gender`` / ``raw``). 不存在返回 None.
+
+        ``field_sources`` 一并清空: 残留来源指向空值, 且会让重刮后来源错位.
+        """
+        async with self._session() as session:
+            actor = await session.get(Actor, actor_id)
+            if actor is None:
+                return None
+            await replace_actor_aliases(session, actor, [])
+            actor.birthday = None
+            actor.birthplace = None
+            actor.height = None
+            actor.bust = None
+            actor.waist = None
+            actor.hip = None
+            actor.cup = None
+            actor.overview = None
+            actor.tagline = None
+            actor.image_urls = []
+            actor.provider_ids = {}
+            actor.source_urls = {}
+            actor.field_sources = {}
+            actor.locked_fields = []
             actor.updated_at = _utcnow()
             session.add(actor)
             await session.commit()
@@ -252,12 +390,8 @@ class FacetsRepoMixin(RepositoryMixinBase):
             return actor
 
     async def rename_facet(self, kind: FacetKind, facet_id: int, new_name: str) -> FacetItem | None:
-        """重命名分类实体 (含用户 tag).
-
-        Metadata 的 JSON/标量字段是刮削真值, 分类实体表是查询投影 -- 重命名先改 JSON/标量,
-        再走 ``sync_metadata_facets`` 重投影. 爬取侧同时写入单跳 alias 规则, 使重刮仍映射到新名.
-        新名称与另一实体冲突时抛 ``ValueError`` (语义上是"改名成了合并", 由调用方决定是否引导
-        用户走 :meth:`merge_facets`). 不存在的 facet_id 返回 None.
+        """先改 Metadata 真值再重投影. 爬取侧同时写单跳 alias, 否则重刮会回到旧名.
+        新名称与另一实体冲突时抛 ``ValueError``; 不存在返回 None.
         """
         async with self._session() as session:
             if kind in LINK_FACETS:
@@ -267,10 +401,8 @@ class FacetsRepoMixin(RepositoryMixinBase):
             raise ValueError(f"unknown facet kind: {kind}")
 
     async def merge_facets(self, kind: FacetKind, target_id: int, source_ids: list[int]) -> FacetItem | None:
-        """将 source_ids 合并入 target_id: 关联迁移到 target, 删除 source 实体.
-
-        爬取侧同时写入压缩后的 alias 规则. target 不存在返回 None; source_ids 含 target_id
-        或引用不存在的实体抛 ``ValueError``.
+        """关联迁到 target, 删除 source. 爬取侧同时写压缩后的 alias.
+        target 不存在返回 None; source 含 target 或不存在则抛 ``ValueError``.
         """
         source_id_set = set(source_ids)
         if target_id in source_id_set:
@@ -284,17 +416,13 @@ class FacetsRepoMixin(RepositoryMixinBase):
             raise ValueError(f"unknown facet kind: {kind}")
 
     async def delete_facet(self, kind: FacetKind, facet_id: int) -> bool:
-        """删除分类实体.
-
-        爬取侧: 写 block 规则 (入边 alias 压成 block), 从 Metadata 真值剔除, 再删实体.
-        user_tag: 硬删挂载与实体, 不写规则. 不存在返回 False.
-        """
+        """爬取侧写 block 并从真值剔除后再删实体. user_tag 硬删挂载与实体, 不写规则. 不存在返回 False."""
         async with self._session() as session:
             if kind == FacetKind.USER_TAG:
                 tag = await session.get(UserTag, facet_id)
                 if tag is None:
                     return False
-                await session.exec(sqla_delete(MetadataUserTag).where(col(MetadataUserTag.user_tag_id) == facet_id))
+                await purge_user_tag_links(session, facet_id)
                 await session.delete(tag)
                 await session.commit()
                 return True
@@ -332,13 +460,19 @@ class FacetsRepoMixin(RepositoryMixinBase):
         async with self._session() as session:
             return await session.get(UserTag, user_tag_id)
 
-    async def create_user_tag(self, name: str) -> UserTag:
+    async def ensure_user_tags(self, names: Sequence[str]) -> tuple[list[UserTag], int]:
+        """按名称取回或新建用户标签; 返回与入参同序的行与新建数量."""
+        unique = list(dict.fromkeys(names))
+        if not unique:
+            return [], 0
         async with self._session() as session:
-            tag = UserTag(name=name)
-            session.add(tag)
-            await session.commit()
-            await session.refresh(tag)
-            return tag
+            try:
+                return await _ensure_user_tags_once(session, unique)
+            except IntegrityError:
+                # 并发同名创建: 双方的 SELECT 都在对方提交前未命中, 后者撞唯一索引.
+                # 回滚重查即可取回对方刚提交的行, 不必把冲突暴露成 500.
+                await session.rollback()
+                return await _ensure_user_tags_once(session, unique)
 
     async def update_user_tag(self, user_tag_id: int, **updates: Unpack[UserTagUpdates]) -> UserTag | None:
         async with self._session() as session:
@@ -358,8 +492,8 @@ class FacetsRepoMixin(RepositoryMixinBase):
             tag = await session.get(UserTag, user_tag_id)
             if tag is None:
                 return False
-            # 显式清挂载, 不依赖 SQLite FK pragma
-            await session.exec(sqla_delete(MetadataUserTag).where(col(MetadataUserTag.user_tag_id) == user_tag_id))
+            # 显式删除挂载, 不依赖 SQLite FK pragma
+            await purge_user_tag_links(session, user_tag_id)
             await session.delete(tag)
             await session.commit()
             return True
@@ -375,63 +509,38 @@ class FacetsRepoMixin(RepositoryMixinBase):
             result = await session.exec(stmt)
             return list(result.all())
 
-    async def attach_user_tag(self, metadata_id: int, user_tag_id: int) -> bool:
-        """挂载用户 tag. 返回 False 若 metadata/tag 不存在; 已存在则幂等成功."""
+    async def list_actor_user_tags(self, actor_id: int) -> list[UserTag]:
         async with self._session() as session:
-            if await session.get(Metadata, metadata_id) is None:
-                return False
-            if await session.get(UserTag, user_tag_id) is None:
-                return False
-            existing = await session.get(MetadataUserTag, (metadata_id, user_tag_id))
-            if existing is None:
-                session.add(MetadataUserTag(metadata_id=metadata_id, user_tag_id=user_tag_id))
-                await session.commit()
-            return True
+            stmt = (
+                select(UserTag)
+                .join(ActorUserTag, col(ActorUserTag.user_tag_id) == col(UserTag.id))
+                .where(col(ActorUserTag.actor_id) == actor_id)
+                .order_by(col(UserTag.name).asc())
+            )
+            result = await session.exec(stmt)
+            return list(result.all())
 
-    async def detach_user_tag(self, metadata_id: int, user_tag_id: int) -> bool:
+    async def apply_metadata_user_tags(
+        self,
+        ids: Sequence[int],
+        user_tag_ids: Sequence[int],
+        *,
+        action: UserTagLinkAction,
+    ) -> UserTagLinkResult:
+        """把一组用户标签应用到一组影片."""
         async with self._session() as session:
-            link = await session.get(MetadataUserTag, (metadata_id, user_tag_id))
-            if link is None:
-                return False
-            await session.delete(link)
-            await session.commit()
-            return True
+            return await apply_user_tags_to_metadata(session, ids, user_tag_ids, action)
 
-    async def batch_attach_user_tag(self, ids: list[int], user_tag_id: int) -> tuple[int, int]:
-        """批量挂载用户 tag (幂等). user_tag 不存在则全部计入 missing.
-
-        返回 (affected, missing) -- missing 为不存在的 metadata id 数 (或 tag 不存在时的全部 id 数).
-        """
+    async def apply_actor_user_tags(
+        self,
+        ids: Sequence[int],
+        user_tag_ids: Sequence[int],
+        *,
+        action: UserTagLinkAction,
+    ) -> UserTagLinkResult:
+        """把一组用户标签应用到一组演员."""
         async with self._session() as session:
-            if await session.get(UserTag, user_tag_id) is None:
-                return 0, len(ids)
-            affected = 0
-            missing = 0
-            for metadata_id in ids:
-                if await session.get(Metadata, metadata_id) is None:
-                    missing += 1
-                    continue
-                existing = await session.get(MetadataUserTag, (metadata_id, user_tag_id))
-                if existing is None:
-                    session.add(MetadataUserTag(metadata_id=metadata_id, user_tag_id=user_tag_id))
-                affected += 1
-            await session.commit()
-            return affected, missing
-
-    async def batch_detach_user_tag(self, ids: list[int], user_tag_id: int) -> tuple[int, int]:
-        """批量取消挂载用户 tag. 返回 (affected, missing) -- missing 为未挂载 (或 metadata/tag 不存在) 的数量."""
-        async with self._session() as session:
-            affected = 0
-            missing = 0
-            for metadata_id in ids:
-                link = await session.get(MetadataUserTag, (metadata_id, user_tag_id))
-                if link is None:
-                    missing += 1
-                    continue
-                await session.delete(link)
-                affected += 1
-            await session.commit()
-            return affected, missing
+            return await apply_user_tags_to_actors(session, ids, user_tag_ids, action)
 
     async def list_comments(self, metadata_id: int) -> list[Comment]:
         async with self._session() as session:
@@ -443,31 +552,30 @@ class FacetsRepoMixin(RepositoryMixinBase):
             result = await session.exec(stmt)
             return list(result.all())
 
-    async def get_comment(self, comment_id: int) -> Comment | None:
-        async with self._session() as session:
-            return await session.get(Comment, comment_id)
-
     async def create_comment(self, metadata_id: int, body: str) -> Comment | None:
         async with self._session() as session:
             if await session.get(Metadata, metadata_id) is None:
                 return None
-            comment = Comment(metadata_id=metadata_id, body=body)
+            # 两个时间列取同一个值: ``updated_at`` 晚于 ``created_at`` 是正文被编辑过的唯一依据.
+            now = _utcnow()
+            comment = Comment(metadata_id=metadata_id, body=body, created_at=now, updated_at=now)
             session.add(comment)
             await session.commit()
             await session.refresh(comment)
             return comment
 
     async def update_comment(self, comment_id: int, **updates: Unpack[CommentUpdates]) -> Comment | None:
+        """正文与库中一致时不写库, ``updated_at`` 保持原值."""
         async with self._session() as session:
             comment = await session.get(Comment, comment_id)
             if comment is None:
                 return None
-            if "body" in updates:
+            if "body" in updates and updates["body"] != comment.body:
                 comment.body = updates["body"]
-            comment.updated_at = _utcnow()
-            session.add(comment)
-            await session.commit()
-            await session.refresh(comment)
+                comment.updated_at = _utcnow()
+                session.add(comment)
+                await session.commit()
+                await session.refresh(comment)
             return comment
 
     async def delete_comment(self, comment_id: int) -> bool:

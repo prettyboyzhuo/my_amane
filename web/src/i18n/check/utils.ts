@@ -1,7 +1,5 @@
 import type * as schemas from "@/client/schemas.gen";
 
-// ==================== Schema 解析 ====================
-
 /** "#/components/schemas/Name" → "Name" */
 type ExtractRefName<R extends string> = R extends `#/components/schemas/${infer Name}`
   ? Name
@@ -12,18 +10,13 @@ type SchemaByName<N extends string> = `${N}Schema` extends keyof typeof schemas
   ? (typeof schemas)[`${N}Schema`]
   : never;
 
-/** 解引用 $ref */
 type Deref<T> = T extends { $ref: infer R extends string } ? SchemaByName<ExtractRefName<R>> : T;
 
-/** anyOf → 第一个非 null 备选 */
 type NonNull<T> = T extends { anyOf: infer Items extends readonly unknown[] }
   ? Exclude<Items[number], { type: "null" }>
   : T;
 
-/** anyOf → 非 null → deref */
 type Concrete<T> = Deref<NonNull<T>>;
-
-// ==================== 字段路径收集 ====================
 
 /**
  * 递归收集需要 label 翻译的字段路径.
@@ -61,8 +54,6 @@ type CollectFieldPaths<
             : never)
       : never
     : never;
-
-// ==================== 枚举条目收集 ====================
 
 /**
  * 递归收集 `路径:枚举值` 条目.
@@ -102,8 +93,6 @@ type CollectEnumEntries<T, P extends string, SkipConst extends boolean = false> 
       : never
     : never;
 
-// ==================== i18n 导航 ====================
-
 /** 点分隔路径在嵌套对象中取值 (`$` 为字面量 key) */
 type DeepGet<T, Path extends string> = Path extends `${infer Head}.${infer Tail}`
   ? Head extends keyof T
@@ -112,8 +101,6 @@ type DeepGet<T, Path extends string> = Path extends `${infer Head}.${infer Tail}
   : Path extends keyof T
     ? T[Path]
     : never;
-
-// ==================== 编译时断言 ====================
 
 /** 缺失 label 的字段路径 (never = 全部通过) */
 type MissingFields<T, FP extends string> = {

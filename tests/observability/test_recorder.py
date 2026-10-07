@@ -176,7 +176,7 @@ def test_record_http_skip_body(tmp_path: Path, task: Task):
 
 
 def test_record_site_outcome_merge_keeps_specific_reason(tmp_path: Path, task: Task):
-    """拦截原因先行上报后, 引擎兜底上报不覆盖具体 reason / outcome 只升级不降级."""
+    """拦截原因先行上报后, 引擎后续上报不覆盖具体 reason / outcome 只升级不降级."""
     rec = Recorder.begin(tmp_path, task, HotSettings())
     # 拦截检测先行: 具体原因
     rec.record_site_outcome(
@@ -186,7 +186,7 @@ def test_record_site_outcome_merge_keeps_specific_reason(tmp_path: Path, task: T
         http_status=None,
         detail="https://javdb.com/search",
     )
-    # 引擎兜底: 无可用元数据 (不应覆盖具体原因)
+    # 引擎后续上报: 无可用元数据 (不应覆盖具体原因)
     rec.record_site_outcome(site="javdb", outcome=SiteOutcomeKind.FAILED, reason=FailureReason.NO_USABLE_METADATA)
     # 缓存命中先于失败? 不可能 — 命中不调 fetch; 这里验证 failed 不会被后续 ok 降级
     rec.record_site_outcome(site="javdb", outcome=SiteOutcomeKind.OK)

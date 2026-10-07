@@ -9,22 +9,22 @@
     "reset": "重置",
     "discard": "放弃更改",
     "retry": "重试",
-    "confirm": "确认",
     "close": "关闭",
+    "filters": "筛选与搜索",
+    "confirm": "确认",
     "browse": "浏览",
-    "loading": "加载中...",
     "saving": "保存中...",
-    "refresh": "刷新",
     "clear": "清除",
     "selectFile": "选择文件",
     "selectDirectory": "选择目录",
     "selectPath": "选择路径",
     "submit": "提交",
-    "scrapeMenuLabel": "选择刮削方式",
     "scrapeNormal": "刮削",
-    "scrapeNormalDesc": "使用数据库缓存，已有数据不重新抓取",
+    "scrapeNormalDesc": "不重新抓取已缓存数据",
     "scrapeForce": "强制刮削",
-    "scrapeForceDesc": "绕过缓存，从数据源重新抓取所有元数据"
+    "scrapeForceDesc": "重新抓取全部来源(覆盖缓存)",
+    "moveUp": "上移",
+    "moveDown": "下移"
   },
   "status": {
     "loading": "加载中...",
@@ -37,25 +37,32 @@
   },
   "nav": {
     "library": "媒体库",
-    "plugins": "刮削插件",
-    "metadata": "元数据",
+    "plugins": "插件",
     "tasks": "任务",
     "schedules": "定时任务",
-    "watchPaths": "文件监控",
     "settings": "设置",
+    "client": "客户端设置",
     "logs": "日志",
+    "networkCheck": "网络检测",
     "meta": "片库",
     "actors": "演员",
     "catalog": "分类",
     "libraries": "媒体库",
     "feeds": "订阅",
     "feedSources": "订阅源",
+    "savedQueries": "查询预设",
     "agent": "Amane",
     "groups": {
       "browse": "浏览",
       "manage": "管理",
-      "ops": "运维"
+      "ops": "运行"
     }
+  },
+  "defaults": {
+    "set": "设为默认",
+    "clear": "清除默认",
+    "saved": "已设为默认",
+    "cleared": "已清除默认"
   },
   "theme": {
     "light": "浅色",
@@ -67,17 +74,11 @@
     "en": "English"
   },
   "pagination": {
-    "previous": "上一页",
-    "next": "下一页",
-    "pageOf": "第 {{page}} 页，共 {{total}} 页",
     "totalItems": "(共 {{count}} 条)",
     "range": "第 {{start}}–{{end}} 条，共 {{total}} 条",
-    "pageSize": "每页",
     "pageSizeShort": "{{size}}/页",
     "loadedOfTotal": "已加载 {{loaded}} / {{total}}",
-    "expandAll": "全部展开",
-    "collapseAll": "全部折叠",
-    "goToPage": "跳转"
+    "pageOf": "第 {{page}} / {{total}} 页"
   },
   "validation": {
     "invalid": "无效值",
@@ -98,17 +99,13 @@
   },
   "toast": {
     "scrapeStarted": "刮削任务已加入队列",
-    "taskCancelled": "任务已取消",
-    "taskRetried": "重试任务已加入队列",
     "scanStarted": "扫描已开始",
     "metadataUpdated": "元数据已更新",
-    "metadataMerged": "元数据已合并",
     "metadataDeleted": "元数据已删除",
     "configSaved": "配置已保存",
     "watchPathAdded": "监控路径已添加",
     "watchPathRemoved": "监控路径已移除",
     "watchPathUpdated": "监控路径已更新",
-    "mediaUpdated": "媒体已更新",
     "mediaDeleted": "媒体已删除",
     "batchScrapeStarted": "批量刮削已开始",
     "batchScrapeFailed": "批量刮削失败",
@@ -118,21 +115,20 @@
     "scheduleTriggered": "定时任务已触发",
     "feedCreated": "订阅源已添加",
     "feedUpdated": "订阅源已更新",
-    "feedDeleted": "订阅源已删除",
     "feedPolled": "已拉取订阅源",
     "operationFailed": "操作失败",
-    "taskDeleted": "任务已删除",
     "taskCreated": "任务已创建",
     "organizeStarted": "整理任务已提交",
-    "tasksDeleted": "已删除 {{count}} 个任务",
     "userTagCreated": "用户标签已创建",
+    "userTagExists": "用户标签已存在",
     "userTagAttached": "已添加用户标签",
+    "userTagBatchUpdated": "已更新 {{count}} 条影片",
     "userTagDetached": "已移除用户标签",
     "userTagDeleted": "用户标签已删除",
     "facetDeleted": "分类已删除并加入黑名单",
     "facetRuleDeleted": "规则已移除",
     "commentCreated": "评论已发表",
-    "commentUpdated": "评论已更新",
+    "commentUpdated": "评论已保存",
     "commentDeleted": "评论已删除"
   },
   "batch": {
@@ -148,15 +144,16 @@
     "check": "检查更新",
     "openRelease": "打开 GitHub Release",
     "restart": "重启服务器",
-    "restartConfirm": "是否确认重启服务器？服务将短暂中断，当前运行的任务会被取消。",
-    "restartRunning": "当前有 {{count}} 个运行中的任务，重启会取消它们。确定继续？",
+    "restartConfirm": "正在进行的任务将被取消, 确认重启？",
+    "restartRunning": "正在进行的 {{count}} 个任务将被取消, 确定重启？",
     "restarting": "正在重启…"
   },
   "auth": {
-    "title": "需要 API 令牌",
-    "description": "需要 API 令牌才能访问。令牌位于数据目录的 token 文件中（菜单栏“打开数据目录”可查看），输入一次后浏览器会记住。",
-    "tokenPlaceholder": "粘贴 API 令牌",
-    "invalidToken": "令牌无效，请检查后重试。",
-    "connectionFailed": "无法连接服务器，请确认服务已启动。"
+    "title": "需要登录",
+    "description": "桌面端可点击菜单栏/任务栏图标 - 复制 API Token, 容器端可在数据目录的 token 文件中查看",
+    "tokenPlaceholder": "粘贴令牌",
+    "serverSettings": "服务器设置",
+    "invalidToken": "令牌无效，请检查后重试",
+    "connectionFailed": "无法连接服务器，请确认服务已启动"
   }
 }

@@ -52,6 +52,8 @@ class TestSubmitTask:
         assert org.status_code == 202
         assert org.json()["payload"]["write_nfo"] is True
         assert set(org.json()["payload"]["copy_resources"]) == {"thumb", "poster", "extrafanart", "trailer"}
+        assert "recursive" not in org.json()["payload"]
+        assert "patterns" not in org.json()["payload"]
 
         lib2 = await repo.create_library(name="o", path=str(safe_path / "o"), write_nfo=True)
         (safe_path / "o").mkdir()
@@ -139,6 +141,26 @@ class TestSubmitTask:
         assert (await client.post("tasks", json={"type": "refresh"})).status_code == 422
         assert (await client.post("tasks", json={"type": "refresh", "library_id": 9999})).status_code == 404
         assert (await client.post("tasks", json={"type": "organize", "library_id": 9999})).status_code == 404
+        # 已移除的类型不再被接受; 删除只认后端产出的清单标识.
+        assert (await client.post("tasks", json={"type": "trash", "library_id": lib.id})).status_code == 422
+        assert (await client.post("tasks", json={"type": "delete", "library_id": lib.id})).status_code == 422
+        assert (
+            await client.post("tasks", json={"type": "delete", "library_id": lib.id, "inventory_id": "nope"})
+        ).status_code == 202
+        assert (await client.post("tasks", json={"type": "scan_invalid", "library_id": 9999})).status_code == 404
+        ids_and_path = await client.post(
+            "tasks", json={"type": "organize", "library_id": lib.id, "path": str(safe_path), "media_file_ids": [1]}
+        )
+        assert ids_and_path.status_code == 422
+        other_lib = await repo.create_library(name="x", path=str(safe_path / "x"))
+        (safe_path / "x").mkdir()
+        assert other_lib.id is not None
+        foreign = await repo.create_media_file(library_id=other_lib.id, path=str(safe_path / "x" / "a.mp4"))
+        assert foreign.id is not None
+        foreign_ids = await client.post(
+            "tasks", json={"type": "organize", "library_id": lib.id, "media_file_ids": [foreign.id]}
+        )
+        assert foreign_ids.status_code == 422
 
         schema = await client.get("tasks/schema")
         assert schema.status_code == 200
@@ -147,7 +169,7 @@ class TestSubmitTask:
         assert not missing, f"TaskSubmission missing: {missing}. Add submission model to TaskSubmission union."
 
     @pytest.mark.asyncio(loop_scope="function")
-    async def test_submit_organize_reuses_active(
+    async def test_submit_organize_creates_new_when_active(
         self, client: AsyncClient, repo: Repository, safe_path, stop_worker: None
     ):
         lib = await repo.create_library(name="t", path=str(safe_path))
@@ -155,9 +177,9 @@ class TestSubmitTask:
         second = await client.post("tasks", json={"type": "organize", "library_id": lib.id, "write_nfo": False})
         assert first.status_code == 202
         assert second.status_code == 202
-        assert first.json()["id"] == second.json()["id"]
+        assert first.json()["id"] != second.json()["id"]
         listed = await repo.list_tasks(task_types=[TaskType.ORGANIZE])
-        assert len(listed) == 1
+        assert len(listed) == 2
 
 
 class TestGetTask:
@@ -345,3 +367,19 @@ class TestTaskRecord:
         assert resp.status_code == 200
         assert resp.headers.get("content-type") == "application/zip"
         assert resp.content[:2] == b"PK"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_scope_path_lands_on_real_path(self, client: AsyncClient, repo: Repository, safe_path: Path):
+        """范围路径与库路径同一形式: 文件选择器给的是真实路径, 别名写法必须先解析为真实路径再入队."""
+        real = safe_path / "movies"
+        (real / "sub").mkdir(parents=True)
+        alias = safe_path / "alias"
+        alias.symlink_to(real, target_is_directory=True)
+        lib = await repo.create_library(name="a", path=str(real))
+
+        submitted = await client.post(
+            "tasks", json={"type": "scan_invalid", "library_id": lib.id, "path": str(alias / "sub")}
+        )
+
+        assert submitted.status_code == 202
+        assert submitted.json()["payload"]["path"] == str(real / "sub")

@@ -1,145 +1,124 @@
-"""schedule-ops Capability - 例行任务 Schedule 管理."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from croniter import croniter
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Capability
 
-from ..api.models.tasks import RoutineSubmission
+from ..api.models.schedules import ScheduleResponse
 from ..db.models import RoutineType, Schedule
 from ..db.repo_types import ScheduleUpdates
-from .tools import AgentDeps, require_approval, trace_tool
-
-
-class AgentScheduleCreate(BaseModel):
-    """Agent 可创建的 Schedule 字段."""
-
-    name: str | None = None
-    cron: str
-    enabled: bool = True
-    submission: RoutineSubmission
-
-    model_config = {"str_strip_whitespace": True}
+from ..utils.model import to_resp
+from .payload_schema import ROUTINE_SUBMISSION, RoutineSubmissionType
+from .tools import TOOL_OK, AgentDeps, require_approval
 
 
 class AgentScheduleUpdate(BaseModel):
-    """Agent 可更新的 Schedule 字段; 只处理显式传入的字段."""
+    """只处理显式传入的字段."""
 
     name: str | None = None
     cron: str | None = None
     enabled: bool | None = None
 
 
-class ScheduleInfo(BaseModel):
+class ScheduleSummary(BaseModel):
+    """列表视图 (`list_schedules`): 不带 routine payload, 细节走 get_schedule."""
+
     id: int
     name: str | None
     cron: str
     task_type: RoutineType
-    payload: dict[str, object]
     enabled: bool
-    last_run: datetime | None
     next_run: datetime | None
 
 
-class ScheduleListResult(BaseModel):
-    items: list[ScheduleInfo]
-    total: int
+def _schedule_info(schedule: Schedule) -> ScheduleResponse:
+    return to_resp(ScheduleResponse, schedule)
 
 
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
-def _schedule_info(schedule: Schedule) -> ScheduleInfo:
+def _schedule_summary(schedule: Schedule) -> ScheduleSummary:
     assert schedule.id is not None
-    return ScheduleInfo(
+    return ScheduleSummary(
         id=schedule.id,
         name=schedule.name,
         cron=schedule.cron,
-        task_type=RoutineType(schedule.task_type),
-        payload=dict(schedule.payload or {}),
+        task_type=schedule.task_type,
         enabled=schedule.enabled,
-        last_run=_as_utc(schedule.last_run),
-        next_run=_as_utc(schedule.next_run),
+        next_run=schedule.next_run,
     )
 
 
 def build_schedule_ops_capability() -> Capability[AgentDeps]:
-    """按需加载的例行任务 Schedule 管理能力."""
 
     cap: Capability[AgentDeps] = Capability(
         id="schedule-ops",
-        description=(
-            "Use for managing routine schedules: cleanup, upscale, r18_import, and rescrape. "
-            "Create, update, trigger, inspect, list, or delete schedules."
-        ),
         instructions=(
-            "Schedule updates only change name, cron, and enabled. "
-            "To change the routine type or payload, delete and recreate the schedule. "
-            "trigger_schedule only makes the schedule due; CronScheduler creates the actual task "
-            "on its next tick, so it is not synchronous execution. Deleting a schedule requires approval."
+            "Changing the routine type or payload requires deleting the schedule and creating a new "
+            "one: update_schedule only accepts name / cron / enabled."
         ),
-        defer_loading=True,
     )
 
     @cap.tool
     async def list_schedules(ctx: RunContext[AgentDeps]) -> dict[str, object]:
         """List all routine schedules."""
-        trace_tool(ctx, "tool_call", {"tool": "list_schedules"})
         schedules = await ctx.deps.repo.list_schedules()
-        out = ScheduleListResult(items=[_schedule_info(schedule) for schedule in schedules], total=len(schedules))
-        result = out.model_dump(mode="json")
-        trace_tool(ctx, "tool_result", {"tool": "list_schedules", "result": result})
+        result: dict[str, object] = {
+            "items": [_schedule_summary(schedule).model_dump(mode="json") for schedule in schedules]
+        }
         return result
 
     @cap.tool
     async def get_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> dict[str, object]:
         """Get one routine schedule by id."""
-        trace_tool(ctx, "tool_call", {"tool": "get_schedule", "schedule_id": schedule_id})
         schedule = await ctx.deps.repo.get_schedule(schedule_id)
         if schedule is None:
             return {"error": f"schedule {schedule_id} 不存在"}
-        result = _schedule_info(schedule).model_dump(mode="json")
-        trace_tool(ctx, "tool_result", {"tool": "get_schedule", "result": result})
-        return result
+        return _schedule_info(schedule).model_dump(mode="json")
 
     @cap.tool
-    async def create_schedule(ctx: RunContext[AgentDeps], request: AgentScheduleCreate) -> dict[str, object]:
-        """Create a routine schedule."""
-        trace_tool(ctx, "tool_call", {"tool": "create_schedule", "request": request.model_dump(mode="json")})
-        if not croniter.is_valid(request.cron):
+    async def get_routine_submission_schema(
+        ctx: RunContext[AgentDeps], submission_type: RoutineSubmissionType
+    ) -> dict[str, Any]:
+        """Return the accepted fields for one routine submission type."""
+        return ROUTINE_SUBMISSION.schema(submission_type)
+
+    @cap.tool
+    async def create_schedule(
+        ctx: RunContext[AgentDeps],
+        cron: str,
+        submission: dict[str, Any],
+        name: str | None = None,
+        enabled: bool = True,
+    ) -> dict[str, object]:
+        """Create a routine schedule; the `submission` shape comes from get_routine_submission_schema."""
+        if not croniter.is_valid(cron):
             return {"error": "Invalid cron expression"}
-        next_run = croniter(request.cron, datetime.now(UTC)).get_next(datetime)
-        task_type = RoutineType(request.submission.type)
+        try:
+            routine = ROUTINE_SUBMISSION.validate(submission)
+        except ValidationError as exc:
+            return ROUTINE_SUBMISSION.error(submission, exc)
+        next_run = croniter(cron, datetime.now(UTC)).get_next(datetime)
+        task_type = RoutineType(routine.type)
         schedule = await ctx.deps.repo.create_schedule(
-            name=request.name,
-            cron=request.cron,
+            name=name,
+            cron=cron,
             task_type=task_type,
-            payload=request.submission.model_dump(mode="json"),
-            enabled=request.enabled,
+            payload=routine.model_dump(mode="json"),
+            enabled=enabled,
             next_run=next_run,
         )
-        result = _schedule_info(schedule).model_dump(mode="json")
-        trace_tool(ctx, "tool_result", {"tool": "create_schedule", "result": result})
+        assert schedule.id is not None
+        result: dict[str, object] = {"schedule_id": schedule.id}
         return result
 
     @cap.tool
     async def update_schedule(
         ctx: RunContext[AgentDeps], schedule_id: int, patch: AgentScheduleUpdate
-    ) -> dict[str, object]:
+    ) -> str | dict[str, object]:
         """Patch schedule name, cron, or enabled state."""
-        trace_tool(
-            ctx,
-            "tool_call",
-            {"tool": "update_schedule", "schedule_id": schedule_id, "patch": patch.model_dump(mode="json")},
-        )
         if await ctx.deps.repo.get_schedule(schedule_id) is None:
             return {"error": f"schedule {schedule_id} 不存在"}
         if not patch.model_fields_set:
@@ -163,14 +142,11 @@ def build_schedule_ops_capability() -> Capability[AgentDeps]:
         updated = await ctx.deps.repo.update_schedule(schedule_id, **cast(ScheduleUpdates, updates))
         if updated is None:
             return {"error": f"schedule {schedule_id} 不存在"}
-        result = _schedule_info(updated).model_dump(mode="json")
-        trace_tool(ctx, "tool_result", {"tool": "update_schedule", "result": result})
-        return result
+        return TOOL_OK
 
     @cap.tool
-    async def trigger_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> dict[str, object]:
+    async def trigger_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> str | dict[str, object]:
         """Mark a schedule due for execution on the next CronScheduler tick."""
-        trace_tool(ctx, "tool_call", {"tool": "trigger_schedule", "schedule_id": schedule_id})
         schedule = await ctx.deps.repo.get_schedule(schedule_id)
         if schedule is None:
             return {"error": f"schedule {schedule_id} 不存在"}
@@ -178,21 +154,15 @@ def build_schedule_ops_capability() -> Capability[AgentDeps]:
         updated = await ctx.deps.repo.update_schedule(schedule.id, next_run=datetime.now(UTC))
         if updated is None:
             return {"error": f"schedule {schedule_id} 不存在"}
-        result = _schedule_info(updated).model_dump(mode="json")
-        trace_tool(ctx, "tool_result", {"tool": "trigger_schedule", "result": result})
-        return result
+        return TOOL_OK
 
     @cap.tool
-    async def delete_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> dict[str, object]:
-        """Delete a routine schedule. Requires user approval."""
+    async def delete_schedule(ctx: RunContext[AgentDeps], schedule_id: int) -> str | dict[str, object]:
+        """Delete a routine schedule."""
         detail = f"删除定时任务 id={schedule_id}"
-        trace_tool(ctx, "tool_call", {"tool": "delete_schedule", "schedule_id": schedule_id})
         require_approval(ctx, sql=detail, tool="delete_schedule", extra={"schedule_id": schedule_id})
-        deleted = await ctx.deps.repo.delete_schedule(schedule_id)
-        result: dict[str, object] = {"tool": "delete_schedule", "schedule_id": schedule_id, "deleted": deleted}
-        if not deleted:
-            result["error"] = f"schedule {schedule_id} 不存在"
-        trace_tool(ctx, "tool_result", {"tool": "delete_schedule", "result": result})
-        return result
+        if not await ctx.deps.repo.delete_schedule(schedule_id):
+            return {"error": f"schedule {schedule_id} 不存在"}
+        return TOOL_OK
 
     return cap

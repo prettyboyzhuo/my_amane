@@ -1,4 +1,4 @@
-"""远程发现源调度: 按每源 interval 到期拉取 RSS/Atom, 解析番号, 按 auto_enqueue 入队 SCRAPE."""
+"""按每源 interval 拉取 RSS/Atom; auto_enqueue 时入队 by-number SCRAPE."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from ..db.feed_keywords import item_matches_ignore_keywords
 from ..db.models import TaskType
 from ..handlers.models import build_feed_scrape_payload
 from ..net.errors import RequestError
@@ -48,14 +49,14 @@ def apply_number_pattern(pattern: str, *texts: str | None) -> str | None:
 
 
 def resolve_entry_number(feed: Feed, entry: ParsedFeedEntry) -> str | None:
-    """按源配置提取番号: 有 number_pattern 则只走正则, 否则 extract_number."""
+    """有 number_pattern 则仅用该正则, 否则 extract_number."""
     if feed.number_pattern:
         return apply_number_pattern(feed.number_pattern, entry.title, entry.description, entry.link)
     return extract_number(entry.title) or (extract_number(entry.description) if entry.description else None)
 
 
 class FeedService:
-    """后台循环: 扫到期 Feed, HTTP 拉取, 去重后按 auto_enqueue 入队 by-number SCRAPE."""
+    """到期 Feed 拉取与去重; auto_enqueue 时按源顺序入队, 同番号取最新一条."""
 
     def __init__(self, repo: Repository, web_client: WebClient) -> None:
         self._repo = repo
@@ -192,7 +193,13 @@ class FeedService:
                     title=entry.title,
                 )
 
+        ignored_keys: set[str] = set()
         for entry, number in reversed(new_entries):
+            ignored = item_matches_ignore_keywords(
+                feed.ignore_keywords or [],
+                title=entry.title,
+                number=number,
+            )
             await self._repo.create_feed_item(
                 feed_id,
                 entry.item_key,
@@ -201,13 +208,16 @@ class FeedService:
                 description=entry.description,
                 number=number,
                 published_at=entry.published_at,
+                ignored=ignored,
             )
+            if ignored:
+                ignored_keys.add(entry.item_key)
 
         enqueued_numbers: set[str] = set()
         enqueued = 0
         if feed.auto_enqueue:
             for _entry, number in new_entries:
-                if number is None or number in enqueued_numbers:
+                if number is None or number in enqueued_numbers or _entry.item_key in ignored_keys:
                     continue
                 enqueued_numbers.add(number)
                 await self._repo.create_task(

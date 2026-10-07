@@ -1,8 +1,4 @@
-"""爬取侧分类用户规则: 单跳别名 + 黑名单 (纯函数层).
-
-规则表保持规范形: alias 的 target 不再是另一条 alias 的 source.
-apply 只查一次表, 不做多跳递归.
-"""
+"""单跳 alias + block. 表内保持规范形; apply 只查一次, 不做多跳递归."""
 
 from __future__ import annotations
 
@@ -39,7 +35,7 @@ def resolve_name(name: str, rules: RulesBySource) -> str | None:
 
 
 def apply_list(names: list[str], rules: RulesBySource) -> list[str]:
-    """对 list 分类字段应用规则, 保序去重; 空串跳过."""
+    """保序去重; 空串跳过."""
     out: list[str] = []
     for name in names:
         if not name:
@@ -53,14 +49,14 @@ def apply_list(names: list[str], rules: RulesBySource) -> list[str]:
 
 
 def apply_scalar(value: str | None, rules: RulesBySource) -> str | None:
-    """对标量分类字段应用规则; 空/block → None."""
+    """空或 block → None."""
     if value is None or not value:
         return None
     return resolve_name(value, rules)
 
 
 def apply_metadata_facet_fields(meta: Metadata, rules_by_kind: RulesByKind) -> None:
-    """就地改写 Metadata 六个爬取侧分类真值字段."""
+    """就地改写六个爬取侧分类真值字段."""
     meta.actors = apply_list(meta.actors, rules_by_kind.get(FacetKind.ACTOR, {}))
     meta.directors = apply_list(meta.directors, rules_by_kind.get(FacetKind.DIRECTOR, {}))
     meta.tags = apply_list(meta.tags, rules_by_kind.get(FacetKind.TAG, {}))

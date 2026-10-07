@@ -1,16 +1,16 @@
-"""Agent 会话与 Saved Query 持久化."""
-
 from __future__ import annotations
+
+from typing import Unpack
 
 from sqlmodel import col, select
 
-from ..models import AgentSession, AgentSessionStatus, SavedQuery, SavedQueryEntity
-from ..repo_types import _utcnow
+from ..models import DEFAULT_SESSION_TITLE, AgentSession, AgentSessionStatus, SavedQuery, SavedQueryEntity
+from ..repo_types import SavedQueryUpdates, _utcnow
 from .base import RepositoryMixinBase
 
 
 class AgentRepoMixin(RepositoryMixinBase):
-    async def create_agent_session(self, title: str = "新会话") -> AgentSession:
+    async def create_agent_session(self, title: str = DEFAULT_SESSION_TITLE) -> AgentSession:
         async with self._session() as session:
             row = AgentSession(title=title, status=AgentSessionStatus.ACTIVE)
             session.add(row)
@@ -50,10 +50,8 @@ class AgentRepoMixin(RepositoryMixinBase):
             return row
 
     async def delete_agent_session(self, session_id: int) -> bool:
-        """删除会话及未 persist 的 saved_query; 已 persist 预设保留 (session_id 置空).
-
-        无 ORM Relationship 时 UoW 可能先删父行; 须 flush 子表变更后再删会话,
-        否则 SQLite FK (PRAGMA foreign_keys=ON) 会 IntegrityError.
+        """未 persist 的 saved_query 一并删除; 已 persist 的保留并将 session_id 置空.
+        无 ORM relationship, 须先 flush 子表再删会话, 否则 FK 会 IntegrityError.
         """
         async with self._session() as session:
             row = await session.get(AgentSession, session_id)
@@ -78,6 +76,7 @@ class AgentRepoMixin(RepositoryMixinBase):
         name: str,
         sql: str,
         entity: SavedQueryEntity,
+        description: str = "",
         session_id: int | None = None,
         persisted: bool = False,
     ) -> SavedQuery:
@@ -86,6 +85,7 @@ class AgentRepoMixin(RepositoryMixinBase):
                 name=name,
                 sql=sql,
                 entity=entity,
+                description=description,
                 session_id=session_id,
                 persisted=persisted,
             )
@@ -114,32 +114,45 @@ class AgentRepoMixin(RepositoryMixinBase):
     async def update_saved_query(
         self,
         query_id: int,
-        *,
-        name: str | None = None,
-        persisted: bool | None = None,
+        **updates: Unpack[SavedQueryUpdates],
     ) -> SavedQuery | None:
         async with self._session() as session:
             row = await session.get(SavedQuery, query_id)
             if row is None:
                 return None
-            if name is not None:
-                row.name = name
-            if persisted is not None:
-                row.persisted = persisted
-                if persisted:
-                    # persist 后与会话解耦
-                    row.session_id = None
+            if "name" in updates:
+                row.name = updates["name"]
+            if "description" in updates:
+                row.description = updates["description"]
+            if "sql" in updates:
+                row.sql = updates["sql"]
             row.updated_at = _utcnow()
             session.add(row)
             await session.commit()
             await session.refresh(row)
             return row
 
-    async def delete_saved_query(self, query_id: int) -> bool:
+    async def delete_saved_queries(self, ids: list[int]) -> tuple[int, int]:
+        """重复 id 只处理一次; 不存在的 id 计入 missing."""
+        unique = list(dict.fromkeys(ids))
         async with self._session() as session:
-            row = await session.get(SavedQuery, query_id)
-            if row is None:
-                return False
-            await session.delete(row)
+            rows = (await session.exec(select(SavedQuery).where(col(SavedQuery.id).in_(unique)))).all()
+            for row in rows:
+                await session.delete(row)
             await session.commit()
-            return True
+            deleted = len(rows)
+            return deleted, len(unique) - deleted
+
+    async def persist_saved_queries(self, ids: list[int]) -> tuple[int, int]:
+        """置为已保留并解绑会话; 重复 id 只处理一次; 幂等: 已保留的行计入 persisted 且不重写."""
+        unique = list(dict.fromkeys(ids))
+        async with self._session() as session:
+            rows = (await session.exec(select(SavedQuery).where(col(SavedQuery.id).in_(unique)))).all()
+            for row in rows:
+                if not row.persisted or row.session_id is not None:
+                    row.persisted = True
+                    row.session_id = None
+                    row.updated_at = _utcnow()
+                    session.add(row)
+            await session.commit()
+            return len(rows), len(unique) - len(rows)

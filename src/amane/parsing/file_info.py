@@ -1,10 +1,10 @@
 """从路径或自由文本解析番号、内容类型, 以及文件相位标记.
 
-核心是 ``parse_file_info``: 有路径就走路径 (目录段可补番号、关键词可改类型);
-只有字符串就当自由文本 (RSS 标题、已有番号), 未命中则 ``number is None``, 不把原文冒充番号.
-两者都返回 ``FileInfo``. 常用字段投影 (``extract_number`` / ``infer_content_type`` 等) 是同一函数的包装.
+``parse_file_info``: 有路径则解析路径 (目录段可补番号、关键词可覆盖类型);
+只有字符串则按自由文本 (RSS 标题、已有番号), 未命中则 ``number is None``, 不能把原文冒充番号.
+常用字段投影是同一函数的包装.
 
-文件相位 (cd / 字幕 / 马赛克 / 清晰度) 与类型正交, 只看文件名; 马赛克还可从目录整段补.
+文件相位 (cd / 字幕 / 马赛克 / 清晰度) 与类型正交: cd / 字幕 / 清晰度只依据文件名; 马赛克依据文件名与目录整段词表, 未命中时再依据番号分类 (有码类型为 censored, 无码类型为 uncensored; 其它类型为空).
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ class ContentType(StrEnum):
 
 
 class Mosaic(StrEnum):
+    CENSORED = "censored"
     UNCENSORED = "uncensored"
     CRACKED = "cracked"
     LEAKED = "leaked"
@@ -61,7 +62,7 @@ class FilePhase(TypedDict):
 
 @dataclass(frozen=True)
 class FilePhaseSummary:
-    """多文件相位聚合: 任一文件具备某性质即亮; definition 取最高档."""
+    """多文件相位聚合: 任一文件具备某性质即为真; definition 取最高档."""
 
     has_subtitle: bool = False
     uncensored: bool = False
@@ -157,6 +158,13 @@ _ESCAPE_MARKERS = (
     "4K",
     "4KS",
     "8K",
+    # 数字分辨率须逐个列出. 未被剥除时其数字片段会被番号规则当作番号
+    # (120115_318-mura-1080p → MURA-1080). 匹配要求两侧为分隔符, 故 1080p60 不受影响.
+    "2160P",
+    "1440P",
+    "1080P",
+    "720P",
+    "480P",
     "HD",
     "LR",
     "VR",
@@ -189,6 +197,7 @@ _MOSAIC_DIR_TOKENS: dict[str, Mosaic] = {
     )
 }
 MOSAIC_VALUES: tuple[Mosaic, ...] = tuple(Mosaic)
+CONTENT_TYPE_VALUES: tuple[ContentType, ...] = tuple(ContentType)
 
 # 分辨率: 元组顺序即优先级; 2160p 归一为 4K.
 # 匹配作用于 _normalize_markers 之后的 basename:
@@ -216,17 +225,18 @@ DEFINITION_VALUES: tuple[str, ...] = tuple(dict.fromkeys(value for value, _ in _
 def parse_file_info(
     path: str | Path | None = None, *, text: str | None = None, escape_strings: list[str] | None = None
 ) -> FileInfo:
-    """有路径解析路径, 否则解析 ``text``. 至少要有一个.
+    """有路径则解析路径, 否则解析 ``text``. 两者至少要有一个.
 
-    路径: 文件名优先, 未命中可回退父目录; 仍未命中用清理后的文件名 (不丢).
-    目录关键词 (欧美 / 里番 / getchu) 可盖掉类型. 分集还可认直接父目录 CD/PART.
-    文本: 只跑番号规则, 未命中 ``number is None`` (不把原文当番号). 文件相位只看该字符串
-    (``Path(text).stem``, 与字幕分集检测一致), 不看目录.
+    路径: 文件名优先, 未命中可回退父目录; 仍未命中用清理后的文件名 (不丢弃).
+    目录关键词 (欧美 / 里番 / getchu) 可覆盖类型. 分集还可认直接父目录 CD/PART.
+    文本: 只执行番号规则, 未命中 ``number is None`` (不能把原文当番号). 文件相位只依据该字符串
+    (``Path(text).stem``, 与字幕分集检测一致), 不依据目录.
     """
     if path is None and text is None:
         raise ValueError("path or text required")
     escape = escape_strings or []
     if path is not None:
+        # 路径: 文件名优先识别; 目录可覆盖类型, 分集可回退父目录.
         p = Path(path)
         stem = p.stem
         dirs = _dir_names(p)
@@ -238,6 +248,7 @@ def parse_file_info(
             cd = _detect_cd_from_parent(dirs[-1])
         mosaic = _detect_mosaic(basename) or _detect_mosaic_from_dirs(dirs)
     else:
+        # 文本: 只执行番号规则; 未命中则 number 为 None, 相位只依据该字符串.
         assert text is not None
         dirs = ()
         number, content_type = _identify(text, dirs, escape, fallback=False)
@@ -250,13 +261,13 @@ def parse_file_info(
         prefix=_prefix(number) if number else "",
         cd=cd,
         has_subtitle=_detect_subtitle(basename),
-        mosaic=mosaic,
+        mosaic=_fill_mosaic(mosaic, content_type),
         definition=_detect_definition(basename),
     )
 
 
 def extract_number(text: str, escape_strings: list[str] | None = None) -> str | None:
-    """从自由文本提取番号. 未命中返回 None, 不把原文冒充番号."""
+    """未命中返回 None, 不能把原文冒充番号."""
     return parse_file_info(text=text, escape_strings=escape_strings).number
 
 
@@ -266,13 +277,21 @@ def infer_content_type(number: str, file_path: str | None = None) -> ContentType
 
 
 def detect_cd(filename: str | Path) -> int | None:
-    """从文件名 (不含目录) 检测分集. 字幕配对只走这一层."""
+    """只解析文件名上的分集, 不依据目录."""
     return parse_file_info(text=str(filename)).cd
 
 
-def get_prefix(number: str) -> str:
-    """番号字母前缀 (MIDV-123 → MIDV)."""
-    return parse_file_info(text=number).prefix
+def split_number(number: str) -> tuple[str, str]:
+    """番号 → (前缀, 去掉前缀与紧随分隔符后的剩余段)."""
+    prefix = parse_file_info(text=number).prefix
+    if not prefix:
+        return "", ""
+    upper = number.upper()
+    head = prefix.upper()
+    idx = 0 if upper.startswith(head) else upper.find(head)
+    if idx < 0:
+        return prefix, ""
+    return prefix, number[idx + len(prefix) :].lstrip("-_. ")
 
 
 def is_uncensored(number: str) -> bool:
@@ -284,7 +303,6 @@ def is_amateur(number: str) -> bool:
 
 
 def file_phase_from_path(path: str | Path) -> FilePhase:
-    """从路径抽出要落库的文件相位列."""
     info = parse_file_info(path)
     return FilePhase(
         content_type=info.content_type,
@@ -295,7 +313,7 @@ def file_phase_from_path(path: str | Path) -> FilePhase:
 
 
 def file_shows_uncensored(mosaic: Mosaic | None, content_type: ContentType) -> bool:
-    """无码角标/筛选: 文件名马赛克标记或片种为无码 (HEYZO 等不必带 -U)."""
+    """无码角标/筛选: 文件名无码标记或内容类型为无码 (HEYZO 等不必带文件名无码标记)."""
     return mosaic == Mosaic.UNCENSORED or content_type == ContentType.UNCENSORED
 
 
@@ -337,9 +355,9 @@ def summarize_file_phases(phases: Iterable[FilePhase]) -> FilePhaseSummary:
 class _Prepared:
     """同一输入的三个加工阶段.
 
-    escaped: 只去掉分辨率/用户逃逸串. 国产 MD 走这里 — 后面剥尾部盘符会把 MD0165-1 的 -1 吃掉.
-    dated: 再剥 CD/字幕尾符, 日期还在. 欧美 studio.YY.MM.DD 用这个.
-    catalog: 再剥日期并归一 FC2. 其余番号规则用这个.
+    escaped: 只去掉分辨率/用户逃逸串. 国产 MD 必须用此阶段 — 再剥尾部盘符会把 MD0165-1 的 -1 删除.
+    dated: 再剥 CD/字幕尾符, 日期还在. 欧美 studio.YY.MM.DD 使用此阶段.
+    catalog: 再剥日期并归一 FC2. 其余番号规则使用此阶段.
     """
 
     escaped: str
@@ -408,8 +426,10 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     if m := re.search(r"MMR-?[A-Z]{2,}-?\d+[A-Z]*", c):
         number = m.group().replace("MMR-", "MMR")
         return number, _type_of_catalog_id(number)
+    # 国产 MD 必须用 escaped: catalog 会删除 MD0165-1 的 -1.
     if (m := re.search(r"([^A-Z]|^)(MD[A-Z-]*\d{4,}(-\d)?)", escaped)) and "MDVR" not in escaped:
         return m.group(2), ContentType.CHINESE
+    # 欧美日期号用 dated (日期尚未剥除).
     if _WESTERN_PROBE.findall(dated):
         result = _WESTERN_PARSE.findall(dated)
         if result:
@@ -419,6 +439,7 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
                 full_name.lower().replace("-", "").replace(".", "") + "." + result[0][1].replace("-", ".")
             ).capitalize()
             return number, ContentType.WESTERN
+    # 其余规则用 catalog.
     if m := re.search(r"XXX-AV-\d{4,}", c):
         return m.group(), ContentType.UNCENSORED
     if m := re.search(r"MKY-[A-Z]+-\d{3,}", c):
@@ -461,6 +482,7 @@ def _match(basename: str, escape_strings: list[str], *, generic: bool) -> tuple[
     if m := _SIX_DIGIT_CATALOG.search(c):
         # 六位数字 + 短横线或下划线 + 序号 (010115-001 / 010115_001 是两部). 短于六位的数字号不命中.
         return m.group(), ContentType.UNCENSORED
+    # 过宽回退仅对文件名 (generic); 目录匹配不进入.
     if generic and (
         (m := re.search(r"[A-Z]+-[A-Z]\d+", c))
         or (m := re.search(r"\d{2,}[-_]\d{2,}", c))
@@ -499,7 +521,6 @@ def _fallback(stem: str, escape: list[str]) -> tuple[str, ContentType]:
 
 
 def _type_of_catalog_id(number: str) -> ContentType:
-    """PREFIX-NNN 族: 无码表 / 六位数字目录号 / 素人 / 国产 / 有码."""
     if re.fullmatch(r"\d{6}[-_]\d{2,4}", number):
         return ContentType.UNCENSORED
     if re.match(r"n\d{4}", number) or re.search(r"[^.]+\.\d{2}\.\d{2}\.\d{2}", number):
@@ -585,15 +606,25 @@ def _detect_subtitle(basename: str) -> bool:
     return bool(re.search(r"[字幕中文]", basename))
 
 
+def _fill_mosaic(mosaic: Mosaic | None, content_type: ContentType) -> Mosaic | None:
+    """词表未命中时: 有码类型为 censored, 无码类型为 uncensored; 其它类型为空. 已有标记不覆盖."""
+    if mosaic is not None:
+        return mosaic
+    if content_type is ContentType.CENSORED:
+        return Mosaic.CENSORED
+    if content_type is ContentType.UNCENSORED:
+        return Mosaic.UNCENSORED
+    return None
+
+
 def _detect_mosaic(basename: str) -> Mosaic | None:
-    if re.search(r"無碼|无码|UNCENSORED", basename):
-        return Mosaic.UNCENSORED
-    if re.search(r"-U(C)?(?![A-Z0-9])", basename):
-        return Mosaic.UNCENSORED
-    if re.search(r"破解", basename):
+    """basename 已大写. `CRACKED` / `-U` / `-UC` 是破解; 多标记时破解优先于流出, 流出优先于无码."""
+    if re.search(r"破解|克破|CRACKED", basename) or re.search(r"-U(C)?(?![A-Z0-9])", basename):
         return Mosaic.CRACKED
     if re.search(r"流出|LEAKED", basename):
         return Mosaic.LEAKED
+    if re.search(r"無碼|无码|UNCENSORED", basename):
+        return Mosaic.UNCENSORED
     return None
 
 

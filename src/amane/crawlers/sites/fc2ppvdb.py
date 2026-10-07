@@ -4,7 +4,7 @@ from parsel import Selector
 
 from ...enums import SiteName
 from ..base import Crawler, CrawlerProfile
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
 
 
@@ -14,7 +14,6 @@ class FC2PPVDBCrawler(Crawler):
         return CrawlerProfile(name=SiteName.FC2PPVDB, base_url="https://fc2ppvdb.com")
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """直接构造详情页 URL."""
         number = query.number
         # Extract numeric part
         num = re.sub(r"(?i)fc2[-_]?(?:ppv[-_]?)?", "", number).strip()
@@ -25,7 +24,6 @@ class FC2PPVDBCrawler(Crawler):
         return None
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """解析 FC2PPVDB 详情页."""
         text = await self.client.get_html(url)
         if not text:
             return None
@@ -55,7 +53,7 @@ class FC2PPVDBCrawler(Crawler):
         return MediaMetadata(
             number=number,
             title=title,
-            actors=actors,
+            actors=film_actors(actors),
             release=release,
             tags=tags,
             thumb_urls=[cover] if cover else [],

@@ -15,23 +15,15 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 @router.get("")
 async def get_config(config: ConfigDep) -> HotSettings:
-    """返回按分区分组的当前配置快照"""
     return config.hot
 
 
 @router.patch("")
 async def update_config(req: dict[str, Any], config: ConfigDep, runtime: RuntimeDep) -> HotSettings:
-    """
-    应用部分配置更新.
-
-    验证补丁, 持久化到 TOML, 重建依赖的运行时对象 (worker, 网络客户端),
-    并广播 config.updated 事件.
-    """
-    # 记录变更的字段
+    """先用当前会话的插件目录校验新路由和插件配置, 再持久化."""
     changed_sections = list(req.keys())
     logger.info("config update requested", sections=changed_sections)
 
-    # 先用当前会话的插件目录校验新路由和插件配置，再持久化。
     try:
         preview = config.preview(req)
         if runtime.plugin_manager is not None:
@@ -44,7 +36,6 @@ async def update_config(req: dict[str, Any], config: ConfigDep, runtime: Runtime
     await runtime.apply_rebuild()
     logger.info("runtime rebuilt after config update", sections=changed_sections)
 
-    # 广播配置变更事件
     await runtime.event_bus.broadcast(Event(type=EventType.LOG, data={"type": "config.updated"}))
 
     return config.hot

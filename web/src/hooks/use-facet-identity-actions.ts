@@ -20,7 +20,7 @@ export interface UseFacetIdentityActionsOptions {
   /** 列表缓存 key (actors → listActors; catalog → listFacets). */
   listQueryKey: QueryKey;
   /**
-   * true (默认): openMerge 先走居中确认再提交.
+   * true (默认): openMerge 先经居中确认再提交.
    * false: openMerge 有来源时直接提交 (演员表).
    */
   confirmMerge?: boolean;
@@ -30,7 +30,7 @@ export interface UseFacetIdentityActionsOptions {
 
 /**
  * 分类实体身份写操作 - rename / merge / delete (+ 可选删规则).
- * 简单确认走 `confirm()`; rename 仍由调用方渲染带输入的 Modal.
+ * 简单确认经 `confirm()`; rename 仍由调用方渲染带输入的 Modal.
  */
 export function useFacetIdentityActions({
   kind,

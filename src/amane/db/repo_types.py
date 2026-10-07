@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from sqlalchemy import UnaryExpression, asc, desc, exists, func, or_
@@ -7,7 +8,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
-from ..enums import ActorGender, DownloadableResource, LibraryAutomation, LinkMode, MoveMode
+from ..enums import ActorGender, DownloadableResource, LibraryAutomation, LibraryIngest, LinkMode, MoveMode
 from ..parsing import ContentType, Mosaic
 from ..utils.dates import normalize_calendar_date
 from .models import (
@@ -32,13 +33,8 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-# ==================== 排序列映射 ====================
-#
-# 显式枚举 -> Column 映射. 不用 getattr(Model, field) 反射, 以便:
-#   1. 类型检查器能验证每个 Column 真实存在;
-#   2. 排序字段集合与可排序列严格对应, 新增枚举值忘记映射即 KeyError 而非静默.
-
-# 列排序字段 → Column. FILE_COUNT 不在此映射, 见 _metadata_primary_order.
+# 显式枚举 → Column. 禁止 getattr 反射: 类型检查须能验证列存在;
+# 新增枚举值未映射须 KeyError, 禁止静默. FILE_COUNT 不在此表, 见 _metadata_primary_order.
 _METADATA_SORT_COLUMNS: dict[MetadataSortField, Mapped[Any]] = {
     MetadataSortField.NUMBER: col(Metadata.number),
     MetadataSortField.TITLE: col(Metadata.title),
@@ -72,7 +68,6 @@ def _order_clause[T](column: Mapped[T], order: SortOrder) -> UnaryExpression[T]:
 
 
 def _metadata_file_count_expr() -> ColumnElement[int]:
-    """关联 MediaFile 数量的相关子查询 (排序用)."""
     return (
         select(func.count())
         .select_from(MediaFile)
@@ -83,7 +78,7 @@ def _metadata_file_count_expr() -> ColumnElement[int]:
 
 
 def _metadata_primary_order(sort_by: MetadataSortField, order: SortOrder) -> ColumnElement[Any]:
-    """Metadata 列表主排序键; FILE_COUNT 走计数表达式, 其余走列映射."""
+    """FILE_COUNT 使用计数表达式, 其余使用列映射."""
     if sort_by is MetadataSortField.FILE_COUNT:
         expr = _metadata_file_count_expr()
         return asc(expr) if order == SortOrder.ASC else desc(expr)
@@ -96,7 +91,6 @@ def _metadata_has_files_clause(*, has_files: bool) -> ColumnElement[bool]:
 
 
 def _media_file_uncensored_predicate() -> ColumnElement[bool]:
-    """单文件无码: mosaic 标记或 content_type 片种."""
     return or_(col(MediaFile.mosaic) == Mosaic.UNCENSORED, col(MediaFile.content_type) == ContentType.UNCENSORED)
 
 
@@ -109,7 +103,7 @@ def _apply_media_phase_filters(
     definition: str | None = None,
     content_type: ContentType | None = None,
 ) -> SelectOfScalar[MediaFile]:
-    """给 MediaFile 查询加上文件相位筛选 (None 表示不过滤)."""
+    """None 表示该相位不过滤."""
     if has_subtitle is not None:
         stmt = stmt.where(col(MediaFile.has_subtitle) == has_subtitle)
     if mosaic is not None:
@@ -134,15 +128,13 @@ def _facet_primary_order(sort_by: FacetSortField, order: SortOrder, *, name_col:
 
 
 class FacetItem(BaseModel):
-    """分类目录条目 + 关联影片数."""
-
     id: int
     name: str
     count: int
 
 
 class ActorBrowseItem(BaseModel):
-    """演员浏览列表行 - 卡片/表格字段 + 关联影片数 (不含简介/别名/源字典)."""
+    """列表行不含简介/别名/源字典; 那些字段仅详情填充."""
 
     id: int
     name: str
@@ -166,8 +158,6 @@ class ActorBrowseItem(BaseModel):
 
 
 class ActorBrowseParams(BaseModel):
-    """演员列表查询 - GET /actors 与 ``browse_actors`` 共用 (含校验与规范化)."""
-
     search: str | None = None
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=50, ge=1, le=1000)
@@ -190,6 +180,7 @@ class ActorBrowseParams(BaseModel):
     cup_max: str | None = Field(default=None, description="罩杯上界")
     birthplace: str | None = Field(default=None, description="出生地包含匹配")
     ids: list[int] | None = Field(default=None, description="限制为这些演员主键")
+    user_tag_ids: list[int] | None = Field(default=None, description="按用户标签筛选; 多值为 AND")
     saved_query_id: int | None = Field(
         default=None, description="Saved query preset id; AND with other filters via SQL subquery"
     )
@@ -249,12 +240,7 @@ class ActorBrowseParams(BaseModel):
         return self
 
 
-# ==================== TypedDicts for update operations ====================
-
-
 class MetadataFields(TypedDict, total=False):
-    """upsert_metadata / update_metadata 可接受的字段."""
-
     title: str | None
     actors: list[str]
     studio: str | None
@@ -277,8 +263,6 @@ class MetadataFields(TypedDict, total=False):
 
 
 class MediaFileUpdates(TypedDict, total=False):
-    """update_media_file 可接受的字段."""
-
     path: str
     number: str | None
     oshash: str | None
@@ -290,11 +274,11 @@ class MediaFileUpdates(TypedDict, total=False):
 
 
 class LibraryUpdates(TypedDict, total=False):
-    """update_library 可接受的字段."""
-
     name: str
     path: str
     automation: LibraryAutomation
+    ingest: LibraryIngest
+    cloud_path: str | None
     recursive: bool
     patterns: list[str]
     move_mode: MoveMode
@@ -318,8 +302,6 @@ class LibraryUpdates(TypedDict, total=False):
 
 
 class ScheduleUpdates(TypedDict, total=False):
-    """update_schedule 可接受的字段."""
-
     name: str | None
     cron: str
     task_type: RoutineType
@@ -330,8 +312,6 @@ class ScheduleUpdates(TypedDict, total=False):
 
 
 class FeedUpdates(TypedDict, total=False):
-    """update_feed 可接受的字段."""
-
     name: str
     url: str
     group: str
@@ -341,6 +321,7 @@ class FeedUpdates(TypedDict, total=False):
     number_pattern: str | None
     content_type: ContentType | None
     use_cache: list[str]
+    ignore_keywords: list[str]
     etag: str | None
     last_modified: str | None
     next_fetch_at: datetime | None
@@ -350,7 +331,7 @@ class FeedUpdates(TypedDict, total=False):
 
 
 class ActorPersonFields(TypedDict, total=False):
-    """update_actor / 刮削回写可接受的人物字段 (不含 name/id)."""
+    """人物可写字段; 不含 name/id."""
 
     aliases: list[str]
     gender: ActorGender
@@ -371,15 +352,42 @@ class ActorPersonFields(TypedDict, total=False):
 
 
 class CommentUpdates(TypedDict, total=False):
-    """update_comment 可接受的字段."""
-
     body: str
 
 
-class UserTagUpdates(TypedDict, total=False):
-    """update_user_tag 可接受的字段."""
+class SavedQueryUpdates(TypedDict, total=False):
+    """查询预设的内容字段; 类型 / 归属 / 保留态不经此更新."""
 
+    name: str
+    description: str
+    sql: str
+
+
+class UserTagUpdates(TypedDict, total=False):
     name: str
 
 
-# ==================== Repository ====================
+class WriteMode(StrEnum):
+    """Metadata / Actor 字段写入策略: ``AUTO`` 供自动刮削, ``MANUAL`` 供手动与助理写入.
+
+    默认 ``AUTO``: 自动写入者漏传策略时只会未加锁, 不会误加锁.
+    语义见 docs/dev/data-model.md「字段锁定」.
+    """
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
+type UserTagLinkAction = Literal["attach", "detach"]
+
+
+class UserTagLinkResult(NamedTuple):
+    """用户标签挂载/卸载的结果计数, 三个字段均以条目 id 为单位.
+
+    ``changed`` 为至少一处挂载关系发生变更的条目数, ``unchanged`` 为已处于目标态的条目数,
+    ``missing`` 为不存在的条目 id 数; 三者之和等于去重后的条目数.
+    """
+
+    changed: int
+    unchanged: int
+    missing: int

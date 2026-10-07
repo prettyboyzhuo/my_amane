@@ -8,13 +8,9 @@
 /** Widget types supported by the schema form system */
 export type AmaneWidget = "PathPicker" | "LibraryPicker" | string;
 
-/** 所有 schema 共享的基础扩展 */
 export interface AmaneBaseExtensions {
-  /** 自定义组件 */
   "x-widget"?: AmaneWidget;
-  /** 隐藏该字段, 不在表单中渲染 */
   "x-hidden"?: boolean;
-  /** 只读字段, 禁止编辑 */
   "x-readonly"?: boolean;
   /**
    * 在 dict 上下文中, 仅当 key 匹配时显示此子字段
@@ -25,78 +21,38 @@ export interface AmaneBaseExtensions {
   "x-hidden-keys"?: string[];
 }
 
-/** 文本字段扩展 - 仅用于 type: "string" (非 enum, 非 path) */
+/** 仅用于 type: "string" (非 enum, 非 path) */
 export interface AmaneTextExtensions extends AmaneBaseExtensions {
-  /**
-   * 多行文本输入
-   * @example
-   * // Pydantic: Field(json_schema_extra={"x-multiline": True})
-   * { "type": "string", "x-multiline": true }
-   */
-  "x-multiline"?: boolean;
-  /**
-   * 长文本: 渲染为更高的多行文本框 (即使未设置 x-multiline), 适合正文/日志等长内容.
-   * @example
-   * // Pydantic: Field(json_schema_extra={"x-long": True})
-   */
+  /** 多行文本框 (rows=8); 顶层字段与 dict 值共用同一控制符. */
   "x-long"?: boolean;
 }
 
-/** 路径字段扩展 - 仅用于 x-widget: "PathPicker" 的 string 字段 */
+/** 仅用于 x-widget: "PathPicker" 的 string 字段 */
 export interface AmanePathExtensions extends AmaneBaseExtensions {
   "x-widget": "PathPicker";
-  /**
-   * 路径类型
-   * - file: 只选文件
-   * - directory: 只选目录
-   * - mixed: 均可
-   * @default "mixed"
-   */
+  /** file 只选文件; directory 只选目录; mixed 均可 */
   "x-path-type"?: "file" | "directory" | "mixed";
 }
 
-/** 枚举字段扩展 - 仅用于有 enum 属性的字段 */
+/** 仅用于有 enum 的字段 */
 export interface AmaneEnumExtensions extends AmaneBaseExtensions {
-  /**
-   * 枚举值的显示名称, 与 enum 数组一一对应
-   * @example
-   * // enum: ["move", "copy", "hardlink"]
-   * // x-show-names: ["移动", "复制", "硬链接"]
-   */
+  /** 与 enum 数组一一对应 */
   "x-show-names"?: string[];
-  /**
-   * 使用 toggle/radio 组件而非下拉框 (适合 ≤5 项)
-   * @example
-   * // Pydantic: Field(json_schema_extra={"x-simple": True})
-   */
+  /** toggle/radio, 适合 ≤5 项 */
   "x-simple"?: boolean;
 }
 
-/** 数组字段扩展 - 仅用于 type: "array" */
+/** 仅用于 type: "array" */
 export interface AmaneArrayExtensions extends AmaneBaseExtensions {
-  /**
-   * 有序数组: 显示拖拽手柄, 用户可调整顺序
-   * 典型场景: 站点优先级列表 ["javdb", "dmm", "javbus"]
-   * @example
-   * // Pydantic: Field(json_schema_extra={"x-ordered": True})
-   */
+  /** 显示拖拽手柄, 可调整顺序 */
   "x-ordered"?: boolean;
-  /**
-   * 长列表: 用固定高度可滚动容器渲染, 而非自由换行铺开.
-   * @example
-   * // Pydantic: Field(json_schema_extra={"x-long": True})
-   */
+  /** 固定高度滚动, 不自由换行铺开. */
   "x-long"?: boolean;
 }
 
-/** 对象/字典字段扩展 - 仅用于 type: "object" */
+/** 仅用于 type: "object" */
 export interface AmaneObjectExtensions extends AmaneBaseExtensions {
-  /**
-   * 冻结 dict 的 key 集合: 禁止用户增删项, 仅允许编辑已有项的值.
-   * key 集合由 propertyNames.enum 定义.
-   * @example
-   * // Pydantic: Field(json_schema_extra={"x-frozen-keys": True, "propertyNames": {"enum": [...]}})
-   */
+  /** 禁止增删项, 仅修改已有值; key 集合由 propertyNames.enum 定义. */
   "x-frozen-keys"?: boolean;
 }
 

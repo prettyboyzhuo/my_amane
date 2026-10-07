@@ -1,12 +1,10 @@
-"""从 SQLModel metadata 生成给 Agent 的只读 schema 说明."""
-
 from __future__ import annotations
 
 from sqlmodel import SQLModel
 
 
 def build_schema_docs(*, include_tables: frozenset[str] | None = None) -> str:
-    """生成表/列摘要文本, 注入 system prompt."""
+    """注入 system prompt 的表/列摘要."""
     lines: list[str] = [
         "Read-only SQLite schema (do NOT write):",
         "Primary keys are always integer column `id` unless noted.",
@@ -26,6 +24,7 @@ def build_schema_docs(*, include_tables: frozenset[str] | None = None) -> str:
     lines.append("- metadata_directors.metadata_id → metadata.id ; .director_id → directors.id")
     lines.append("- metadata_tags.metadata_id → metadata.id ; .tag_id → tags.id")
     lines.append("- metadata_user_tags.metadata_id → metadata.id ; .user_tag_id → user_tags.id")
+    lines.append("- actor_user_tags.actor_id → actors.id ; .user_tag_id → user_tags.id")
     lines.append("- comments.metadata_id → metadata.id")
     lines.append("Note: `metadata` PK is `id` — there is NO `metadata.metadata_id` column.")
     lines.append("")

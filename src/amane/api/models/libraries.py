@@ -1,9 +1,9 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ...db import Library
-from ...enums import DownloadableResource, LibraryAutomation, LinkMode, MoveMode
+from ...enums import DownloadableResource, LibraryAutomation, LibraryIngest, LinkMode, MoveMode
 from ...library import (
     DEFAULT_SUBTITLE_EXTENSIONS,
     DEFAULT_TRAILER_PATTERN,
@@ -11,6 +11,7 @@ from ...library import (
     MinFileSize,
     SubtitleExtensions,
     TrailerPattern,
+    resolve_ingest_cloud_path,
 )
 from ...organize.path_templates import (
     EXTRAFANART_TEMPLATE_DEFAULT,
@@ -34,6 +35,9 @@ class LibraryCreateRequest(BaseModel):
     """显示名; 留空则取路径 basename."""
     path: str
     automation: LibraryAutomation = LibraryAutomation.SCRAPE
+    ingest: LibraryIngest = LibraryIngest.NATIVE
+    cloud_path: str | None = None
+    """CloudDrive 虚拟路径 (POSIX, 如 /115open/云下载). ingest=clouddrive 时必填."""
     recursive: bool = True
     patterns: list[str] = []
     move_mode: MoveMode = MoveMode.MOVE
@@ -53,16 +57,21 @@ class LibraryCreateRequest(BaseModel):
     copy_resources: list[DownloadableResource] = Field(default_factory=lambda: list(DownloadableResource))
     trailer_pattern: TrailerPattern = DEFAULT_TRAILER_PATTERN
     blacklist_patterns: list[BlacklistPattern] = []
-    """文件名正则列表; 命中任一则扫描/监控跳过, ORGANIZE 时移入库根 `.amane_trash`."""
+    """文件名正则列表; 命中任一则扫描/监控跳过, 并作为无效文件进入清理清单."""
     min_file_size: MinFileSize = 0
-    """视频体积下限 (字节). 小于此值的扫描视频跳过入库, ORGANIZE 时进 `.amane_trash`. 0 关闭."""
+    """视频体积下限 (字节). 小于此值的扫描视频跳过入库, 并作为无效文件进入清理清单. 0 关闭."""
     scan: bool = True
+
+    @model_validator(mode="after")
+    def _cloud_path_for_ingest(self) -> Self:
+        self.cloud_path = resolve_ingest_cloud_path(self.ingest, self.cloud_path)
+        return self
 
 
 if TYPE_CHECKING:
     type LibraryUpdateRequest = Library
 
-# 外部可写面: 除主键 id 外的全部库配置列.
+# 外部可写字段: 除主键 id 外的全部库配置列.
 LibraryUpdateRequest = create_partial_model(Library, ignore_fields=("id",), partial_cls_name="LibraryUpdateRequest")
 
 
@@ -71,6 +80,8 @@ class LibraryResponse(BaseModel):
     name: str
     path: str
     automation: LibraryAutomation
+    ingest: LibraryIngest
+    cloud_path: str | None = None
     recursive: bool
     patterns: list[str] = []
     move_mode: MoveMode
@@ -130,7 +141,7 @@ class PathTemplatePlaceholder(BaseModel):
 
 
 class PathTemplateSchemaResponse(BaseModel):
-    """GET /libraries/path-template-schema: 占位符、默认值与可映射 key, 与 resolve_paths 同源."""
+    """与 resolve_paths 同源."""
 
     video_default: str
     optional_defaults: OptionalPathTemplateDefaults
@@ -139,7 +150,6 @@ class PathTemplateSchemaResponse(BaseModel):
 
 
 def path_template_schema() -> PathTemplateSchemaResponse:
-    """组装路径模板契约, 供 GET /libraries/path-template-schema."""
     return PathTemplateSchemaResponse(
         video_default=VIDEO_TEMPLATE_DEFAULT,
         optional_defaults=OPTIONAL_TEMPLATE_DEFAULTS,

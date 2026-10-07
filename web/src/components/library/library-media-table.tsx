@@ -1,6 +1,18 @@
-import { ActionIcon, Badge, Button, Checkbox, Group, Stack, Table, Text } from "@mantine/core";
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Group,
+  Menu,
+  Stack,
+  Table,
+  Text,
+  type MantineBreakpoint,
+} from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconForms, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { IconDots, IconFolderDown, IconForms, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
@@ -14,17 +26,20 @@ import type {
   MediaSortField,
   SortOrder,
 } from "@/client/types.gen";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { FilePhaseBadges } from "@/components/media/file-phase-badges";
 import { ListToolbar } from "@/components/common/list-toolbar";
 import { SortableTh } from "@/components/common/sortable-th";
 import { SelectionBar } from "@/components/common/selection-bar";
 import { ScrapeOverrideDialog } from "./scrape-override-dialog";
+import { MediaDeleteDialog } from "./media-delete-dialog";
 import { useIdSelection } from "@/hooks/use-id-selection";
 import { extractErrorMessage } from "@/lib/api-error";
 import { confirm } from "@/lib/confirm";
 import { assertNever } from "@/lib/exhaustive";
 import { formatFileSize } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui";
+import classes from "./library-media-table.module.css";
 
 function statusColor(status: MediaFileStatus): string {
   switch (status) {
@@ -47,6 +62,36 @@ function relativePath(libraryPath: string, path: string): string {
     return path.slice(libraryPath.length).replace(/^\//, "");
   }
   return path;
+}
+
+interface DeleteMenuItemsProps {
+  onDeleteRecord: () => void;
+  onDeleteFiles: () => void;
+  onDeleteWorkDir: () => void;
+  disabled?: boolean;
+}
+
+/** 三个删除口径在批量与单行菜单里完全一致, 只在单行菜单里没有勾选量. */
+function DeleteMenuItems({
+  onDeleteRecord,
+  onDeleteFiles,
+  onDeleteWorkDir,
+  disabled,
+}: DeleteMenuItemsProps) {
+  const { t } = useTranslation("library");
+  return (
+    <>
+      <Menu.Item disabled={disabled} onClick={onDeleteRecord}>
+        {t("cleanup.deleteRecord")}
+      </Menu.Item>
+      <Menu.Item disabled={disabled} onClick={onDeleteFiles}>
+        {t("cleanup.deleteFiles")}
+      </Menu.Item>
+      <Menu.Item disabled={disabled} onClick={onDeleteWorkDir}>
+        {t("cleanup.deleteWorkDir")}
+      </Menu.Item>
+    </>
+  );
 }
 
 const SORTABLE_COLUMNS = [
@@ -74,7 +119,20 @@ const COLUMN_WIDTH: Record<SortableColumn, number | undefined> = {
 
 const CELL_OVERFLOW = { overflow: "hidden", maxWidth: 0 } as const;
 
+/**
+ * 各列的隐藏断点: 可见列宽之和超出容器时表格横向滚动, 路径列随之移出首屏.
+ * 该映射同时决定表头与单元格的显隐, 任一处缺失即列错位.
+ */
+const COLUMN_VISIBLE_FROM: Partial<Record<SortableColumn, MantineBreakpoint>> = {
+  size: "sm",
+  updated_at: "sm",
+};
+
+/** 元数据列不可排序, 与 size / updated 同在 sm 以下隐藏. */
+const METADATA_VISIBLE_FROM: MantineBreakpoint = "sm";
+
 export interface LibraryMediaTableProps {
+  libraryId: number;
   libraryPath: string;
   items: MediaFileResponse[];
   isLoading: boolean;
@@ -88,6 +146,7 @@ export interface LibraryMediaTableProps {
 }
 
 export function LibraryMediaTable({
+  libraryId,
   libraryPath,
   items,
   isLoading,
@@ -104,7 +163,11 @@ export function LibraryMediaTable({
   const limit = useUIStore((s) => s.pageSizes.libraryMedia);
   const { selected, selectedIds, toggleOne, toggleAll, isAllSelected, clear } = useIdSelection();
   const [batchScraping, setBatchScraping] = useState(false);
+  const [batchOrganizing, setBatchOrganizing] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [deleteTargets, setDeleteTargets] = useState<{ ids: number[]; workDir: boolean } | null>(
+    null,
+  );
   const [overrideTarget, setOverrideTarget] = useState<MediaFileResponse | null>(null);
   const [overrideSaving, setOverrideSaving] = useState(false);
 
@@ -132,6 +195,29 @@ export function LibraryMediaTable({
       });
     }
     clear();
+  }
+
+  async function handleBatchOrganize() {
+    const ids = selectedIds;
+    setBatchOrganizing(true);
+    try {
+      await submitTask({
+        body: { type: "organize", library_id: libraryId, media_file_ids: ids },
+        throwOnError: true,
+      });
+      notifications.show({
+        message: t("common:toast.organizeStarted"),
+        color: "blue",
+      });
+      clear();
+    } catch (err) {
+      notifications.show({
+        message: extractErrorMessage(err, t("common:toast.operationFailed")),
+        color: "red",
+      });
+    } finally {
+      setBatchOrganizing(false);
+    }
   }
 
   async function handleBatchDelete() {
@@ -205,7 +291,11 @@ export function LibraryMediaTable({
   const allSelected = isAllSelected(pageIds);
   const effectiveSortBy = sortBy ?? "updated_at";
   const effectiveOrder = order ?? "desc";
-  const busy = batchScraping || batchDeleting;
+  const busy = batchScraping || batchOrganizing || batchDeleting;
+
+  function openMediaDelete(ids: number[], includeWorkDir: boolean) {
+    setDeleteTargets({ ids, workDir: includeWorkDir });
+  }
 
   function handlePageChange(p: number) {
     clear();
@@ -219,27 +309,82 @@ export function LibraryMediaTable({
       onChange={handlePageChange}
       header={
         <SelectionBar count={selected.size}>
-          <Button
-            size="xs"
-            variant="light"
-            leftSection={<IconRefresh size={14} />}
-            loading={busy}
-            disabled={selected.size === 0}
-            onClick={() => void handleBatchScrape()}
-          >
-            {t("actions.batchScrape")}
-          </Button>
-          <Button
-            size="xs"
-            variant="light"
-            color="red"
-            leftSection={<IconTrash size={14} />}
-            loading={busy}
-            disabled={selected.size === 0}
-            onClick={() => void handleBatchDelete()}
-          >
-            {t("common:actions.delete")}
-          </Button>
+          {/* 窄屏三个批量按钮分成多行, 占用表体高度: sm 以下改由菜单提供, 选中数仍由 Badge 常驻呈现. */}
+          <Group gap="xs" wrap="wrap" visibleFrom="sm">
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconRefresh size={14} />}
+              loading={busy}
+              disabled={selected.size === 0}
+              onClick={() => void handleBatchScrape()}
+            >
+              {t("actions.batchScrape")}
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconFolderDown size={14} />}
+              loading={busy}
+              disabled={selected.size === 0}
+              onClick={() => void handleBatchOrganize()}
+            >
+              {t("actions.batchOrganize")}
+            </Button>
+            <Menu position="bottom-end" withinPortal>
+              <Menu.Target>
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="red"
+                  leftSection={<IconTrash size={14} />}
+                  loading={busy}
+                  disabled={selected.size === 0}
+                >
+                  {t("cleanup.deleteMenu")}
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <DeleteMenuItems
+                  onDeleteRecord={() => void handleBatchDelete()}
+                  onDeleteFiles={() => openMediaDelete(selectedIds, false)}
+                  onDeleteWorkDir={() => openMediaDelete(selectedIds, true)}
+                />
+              </Menu.Dropdown>
+            </Menu>
+          </Group>
+          <Box hiddenFrom="sm">
+            <Menu position="bottom-start" withinPortal>
+              <Menu.Target>
+                <Button size="xs" variant="light" loading={busy} disabled={selected.size === 0}>
+                  {t("columns.actions")}
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item
+                  leftSection={<IconRefresh size={14} />}
+                  disabled={busy}
+                  onClick={() => void handleBatchScrape()}
+                >
+                  {t("actions.batchScrape")}
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconFolderDown size={14} />}
+                  disabled={busy}
+                  onClick={() => void handleBatchOrganize()}
+                >
+                  {t("actions.batchOrganize")}
+                </Menu.Item>
+                <Menu.Divider />
+                <DeleteMenuItems
+                  disabled={busy}
+                  onDeleteRecord={() => void handleBatchDelete()}
+                  onDeleteFiles={() => openMediaDelete(selectedIds, false)}
+                  onDeleteWorkDir={() => openMediaDelete(selectedIds, true)}
+                />
+              </Menu.Dropdown>
+            </Menu>
+          </Box>
         </SelectionBar>
       }
       trailing={trailing}
@@ -250,14 +395,16 @@ export function LibraryMediaTable({
         verticalSpacing="sm"
         layout="fixed"
         w="100%"
-        style={{ minWidth: 720 }}
+        className={classes.table}
       >
         <Table.Thead>
           <Table.Tr>
             <Table.Th w={40}>
               <Checkbox checked={allSelected} onChange={() => toggleAll(pageIds)} />
             </Table.Th>
-            <Table.Th w={120}>{t("columns.metadata")}</Table.Th>
+            <Table.Th w={120} visibleFrom={METADATA_VISIBLE_FROM}>
+              {t("columns.metadata")}
+            </Table.Th>
             {SORTABLE_COLUMNS.map((field) => (
               <SortableTh
                 key={field}
@@ -267,9 +414,10 @@ export function LibraryMediaTable({
                 order={effectiveOrder}
                 onSort={onSort}
                 w={COLUMN_WIDTH[field]}
+                visibleFrom={COLUMN_VISIBLE_FROM[field]}
               />
             ))}
-            <Table.Th w={120} ta="right">
+            <Table.Th ta="right" className={classes.actionsColumn}>
               {t("columns.actions")}
             </Table.Th>
           </Table.Tr>
@@ -285,7 +433,7 @@ export function LibraryMediaTable({
                 <Table.Td>
                   <Checkbox checked={selected.has(item.id)} onChange={() => toggleOne(item.id)} />
                 </Table.Td>
-                <Table.Td style={CELL_OVERFLOW}>
+                <Table.Td style={CELL_OVERFLOW} visibleFrom={METADATA_VISIBLE_FROM}>
                   {item.metadata_id != null ? (
                     <Link
                       to="/meta/$metadataId"
@@ -322,20 +470,22 @@ export function LibraryMediaTable({
                     {t(`filters.${item.status}`)}
                   </Badge>
                 </Table.Td>
-                <Table.Td style={CELL_OVERFLOW}>
+                <Table.Td style={CELL_OVERFLOW} visibleFrom={COLUMN_VISIBLE_FROM.size}>
                   <Text size="sm" truncate>
                     {formatFileSize(item.size)}
                   </Text>
                 </Table.Td>
-                <Table.Td style={CELL_OVERFLOW}>
+                <Table.Td style={CELL_OVERFLOW} visibleFrom={COLUMN_VISIBLE_FROM.updated_at}>
                   <Text size="sm" truncate>
                     {item.updated_at ? item.updated_at.slice(0, 10) : "—"}
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Group gap={4} justify="flex-end" wrap="nowrap">
-                    <ActionIcon
+                  {/* 窄屏动作列只容得下一个按钮, 三个动作移入菜单. */}
+                  <Group gap={4} justify="flex-end" wrap="nowrap" visibleFrom="sm">
+                    <HintedActionIcon
                       variant="subtle"
+                      label={t("actions.scrape")}
                       onClick={() =>
                         submitTask({ body: { type: "scrape", media_id: item.id } }).then(() =>
                           notifications.show({
@@ -344,26 +494,73 @@ export function LibraryMediaTable({
                           }),
                         )
                       }
-                      title={t("actions.scrape")}
                     >
                       <IconRefresh size={16} />
-                    </ActionIcon>
-                    <ActionIcon
+                    </HintedActionIcon>
+                    <HintedActionIcon
                       variant="subtle"
+                      label={t("actions.scrapeWithNumber")}
                       onClick={() => setOverrideTarget(item)}
-                      title={t("actions.scrapeWithNumber")}
                     >
                       <IconForms size={16} />
-                    </ActionIcon>
-                    <ActionIcon
-                      variant="subtle"
-                      color="red"
-                      onClick={() => void handleDeleteOne(item.id)}
-                      title={t("common:actions.delete")}
-                    >
-                      <IconTrash size={16} />
-                    </ActionIcon>
+                    </HintedActionIcon>
+                    <Menu position="bottom-end" withinPortal>
+                      <Menu.Target>
+                        <ActionIcon
+                          variant="subtle"
+                          color="red"
+                          size="sm"
+                          aria-label={t("cleanup.deleteMenu")}
+                        >
+                          <IconTrash size={16} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <DeleteMenuItems
+                          onDeleteRecord={() => void handleDeleteOne(item.id)}
+                          onDeleteFiles={() => openMediaDelete([item.id], false)}
+                          onDeleteWorkDir={() => openMediaDelete([item.id], true)}
+                        />
+                      </Menu.Dropdown>
+                    </Menu>
                   </Group>
+                  {/* Menu 不接受 visibleFrom / hiddenFrom, 显隐由外层 Box 承担. */}
+                  <Box hiddenFrom="sm" style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <Menu position="bottom-end" withinPortal>
+                      <Menu.Target>
+                        <ActionIcon size="sm" variant="subtle" aria-label={t("columns.actions")}>
+                          <IconDots size={14} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<IconRefresh size={14} />}
+                          onClick={() =>
+                            submitTask({ body: { type: "scrape", media_id: item.id } }).then(() =>
+                              notifications.show({
+                                message: t("common:toast.scrapeStarted"),
+                                color: "blue",
+                              }),
+                            )
+                          }
+                        >
+                          {t("actions.scrape")}
+                        </Menu.Item>
+                        <Menu.Item
+                          leftSection={<IconForms size={14} />}
+                          onClick={() => setOverrideTarget(item)}
+                        >
+                          {t("actions.scrapeWithNumber")}
+                        </Menu.Item>
+                        <Menu.Divider />
+                        <DeleteMenuItems
+                          onDeleteRecord={() => void handleDeleteOne(item.id)}
+                          onDeleteFiles={() => openMediaDelete([item.id], false)}
+                          onDeleteWorkDir={() => openMediaDelete([item.id], true)}
+                        />
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Box>
                 </Table.Td>
               </Table.Tr>
             );
@@ -383,6 +580,17 @@ export function LibraryMediaTable({
           if (!overrideSaving) setOverrideTarget(null);
         }}
         onSubmit={(number, contentType) => void handleOverrideScrape(number, contentType)}
+      />
+      <MediaDeleteDialog
+        libraryId={libraryId}
+        mediaFileIds={deleteTargets?.ids ?? []}
+        includeWorkDir={deleteTargets?.workDir ?? false}
+        opened={deleteTargets !== null}
+        onClose={() => setDeleteTargets(null)}
+        onDeleted={() => {
+          clear();
+          invalidate();
+        }}
       />
     </ListToolbar>
   );

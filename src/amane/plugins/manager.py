@@ -9,15 +9,22 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from ..config.manager import HotSettings
-from ..crawlers import registry
-from ..crawlers.site_roles import FILM_METADATA_SITES
-from .api import FilmSourcePlugin, FilmSourceProvider, PluginContext
+from ..crawlers.site_roles import FILM_METADATA_SITES, builtin_descriptors
+from .api import (
+    FilmSourcePlugin,
+    FilmSourceProvider,
+    InstalledPlugin,
+    PlaybackPlugin,
+    PlaybackProvider,
+    PluginContext,
+)
 from .models import (
     PLUGIN_API_VERSION,
     PluginConfig,
     PluginOrigin,
     SourceCapability,
     SourceDescriptor,
+    SourceTrait,
     is_external_source_id,
     validate_external_source_id,
 )
@@ -32,6 +39,8 @@ from .packaging import (
 
 logger = logging.getLogger(__name__)
 
+_KNOWN_TRAITS: frozenset[str] = frozenset(trait.value for trait in SourceTrait)
+
 
 class PluginLoadFailure(BaseModel):
     """A plugin drop-in that could not be loaded."""
@@ -41,8 +50,38 @@ class PluginLoadFailure(BaseModel):
     error: str
 
 
+def _instantiate_dropin(candidate: object) -> InstalledPlugin:
+    if not isinstance(candidate, type) or not (
+        issubclass(candidate, FilmSourcePlugin) or issubclass(candidate, PlaybackPlugin)
+    ):
+        raise TypeError(
+            f"plugin.py must define a FilmSourcePlugin or PlaybackPlugin subclass named {PLUGIN_CLASS_NAME}"
+        )
+    plugin = candidate()
+    if not isinstance(plugin, FilmSourcePlugin | PlaybackPlugin):
+        raise TypeError(f"{PLUGIN_CLASS_NAME} must be a FilmSourcePlugin or PlaybackPlugin")
+    return plugin
+
+
+def _require_matching_capabilities(plugin: InstalledPlugin, descriptor: SourceDescriptor) -> None:
+    has_film = descriptor.supports(SourceCapability.FILM_METADATA)
+    has_playback = descriptor.supports(SourceCapability.PLAYBACK)
+    is_film = isinstance(plugin, FilmSourcePlugin)
+    is_playback = isinstance(plugin, PlaybackPlugin)
+    if not has_film and not has_playback:
+        raise ValueError("descriptor must advertise film_metadata or playback")
+    if has_film and not is_film:
+        raise ValueError("descriptor advertises film_metadata but Plugin is not a FilmSourcePlugin")
+    if has_playback and not is_playback:
+        raise ValueError("descriptor advertises playback but Plugin is not a PlaybackPlugin")
+    if is_film and not has_film:
+        raise ValueError("FilmSourcePlugin must advertise the film_metadata capability")
+    if is_playback and not has_playback:
+        raise ValueError("PlaybackPlugin must advertise the playback capability")
+
+
 class PluginManager:
-    """Catalog of built-in and discovered film sources.
+    """Catalog of built-in film sources and discovered drop-ins.
 
     The catalog is replaced in-process on install, uninstall, or reload. Builtin
     crawlers stay in the in-tree registry; only drop-ins under ``plugins/sources`` change.
@@ -50,7 +89,7 @@ class PluginManager:
 
     def __init__(
         self,
-        plugins: dict[str, FilmSourcePlugin],
+        plugins: dict[str, InstalledPlugin],
         failures: list[PluginLoadFailure],
         origins: dict[str, PluginOrigin] | None = None,
     ):
@@ -64,7 +103,7 @@ class PluginManager:
         """Discover third-party source plugins from ``{data_dir}/plugins/sources``."""
         purge_imported_plugin_modules()
 
-        plugins: dict[str, FilmSourcePlugin] = {}
+        plugins: dict[str, InstalledPlugin] = {}
         origins: dict[str, PluginOrigin] = {}
         failures: list[PluginLoadFailure] = []
         builtin_ids = {str(site) for site in FILM_METADATA_SITES}
@@ -80,16 +119,20 @@ class PluginManager:
                     raise FileNotFoundError(f"missing {entry.name}")
                 module = load_plugin_module(plugin_id, child)
                 candidate = module.__dict__.get(PLUGIN_CLASS_NAME)
-                if not isinstance(candidate, type) or not issubclass(candidate, FilmSourcePlugin):
-                    raise TypeError(f"plugin.py must define a FilmSourcePlugin subclass named {PLUGIN_CLASS_NAME}")
-                plugin = candidate()
+                plugin = _instantiate_dropin(candidate)
                 descriptor = plugin.descriptor()
                 if descriptor.api_version != PLUGIN_API_VERSION:
                     raise ValueError(
                         f"unsupported plugin API version {descriptor.api_version!r}; expected {PLUGIN_API_VERSION!r}"
                     )
-                if not descriptor.supports(SourceCapability.FILM_METADATA):
-                    raise ValueError("descriptor does not advertise the film_metadata capability")
+                _require_matching_capabilities(plugin, descriptor)
+                unknown_traits = sorted(trait for trait in descriptor.traits if trait not in _KNOWN_TRAITS)
+                if unknown_traits:
+                    # 未知取值降级为忽略: 插件可能针对更新的宿主声明了本版本还不认识的 trait.
+                    logger.warning(
+                        "unknown source traits ignored",
+                        extra={"plugin": plugin_id, "traits": unknown_traits},
+                    )
                 validate_external_source_id(descriptor.id)
                 if descriptor.id != plugin_id:
                     raise ValueError(f"descriptor id {descriptor.id!r} does not match directory name {plugin_id!r}")
@@ -110,15 +153,29 @@ class PluginManager:
     def failures(self) -> tuple[PluginLoadFailure, ...]:
         return tuple(self._failures)
 
-    @property
-    def multi_language_sources(self) -> frozenset[str]:
-        return frozenset(descriptor.id for descriptor in self.descriptors() if descriptor.multi_language)
-
-    def get(self, source_id: str) -> FilmSourcePlugin | None:
+    def get(self, source_id: str) -> InstalledPlugin | None:
         return self._plugins.get(source_id)
 
     def has_plugin(self, plugin_id: str) -> bool:
         return plugin_id in self._plugins
+
+    def has_film_plugin(self, plugin_id: str) -> bool:
+        plugin = self._plugins.get(plugin_id)
+        descriptor = self.descriptor(plugin_id)
+        return (
+            isinstance(plugin, FilmSourcePlugin)
+            and descriptor is not None
+            and descriptor.supports(SourceCapability.FILM_METADATA)
+        )
+
+    def has_playback_plugin(self, plugin_id: str) -> bool:
+        plugin = self._plugins.get(plugin_id)
+        descriptor = self.descriptor(plugin_id)
+        return (
+            isinstance(plugin, PlaybackPlugin)
+            and descriptor is not None
+            and descriptor.supports(SourceCapability.PLAYBACK)
+        )
 
     def origin(self, plugin_id: str) -> PluginOrigin | None:
         return self._origins.get(plugin_id)
@@ -164,8 +221,10 @@ class PluginManager:
         if not isinstance(properties, dict):
             return out
 
-        source_ids = [descriptor.id for descriptor in self.descriptors()]
-        for field_name in ("content_routes", "field_priority"):
+        source_ids = [
+            descriptor.id for descriptor in self.descriptors() if descriptor.supports(SourceCapability.FILM_METADATA)
+        ]
+        for field_name in ("content_routes", "field_priority", "field_blacklist"):
             field = properties.get(field_name)
             if not isinstance(field, dict):
                 continue
@@ -198,18 +257,22 @@ class PluginManager:
                 if descriptor.content_types and content_type not in descriptor.content_types:
                     raise ValueError(f"source {source_id!r} does not support content type {content_type!r}")
 
-        for meta_field, sources in hot.scraping.field_priority.items():
-            field = f"scraping.field_priority.{meta_field}"
-            for source_id in sources:
-                descriptor = self._descriptor_for_route(
-                    str(source_id), known, require_available=require_available, field=field
-                )
-                if descriptor is None:
-                    continue
-                if not descriptor.supports(SourceCapability.FILM_METADATA):
-                    raise ValueError(f"source {source_id!r} cannot provide film metadata")
-                if descriptor.metadata_fields and meta_field not in descriptor.metadata_fields:
-                    raise ValueError(f"source {source_id!r} does not provide metadata field {meta_field!r}")
+        for prefix, mapping in (
+            ("scraping.field_priority", hot.scraping.field_priority),
+            ("scraping.field_blacklist", hot.scraping.field_blacklist),
+        ):
+            for meta_field, sources in mapping.items():
+                field = f"{prefix}.{meta_field}"
+                for source_id in sources:
+                    descriptor = self._descriptor_for_route(
+                        str(source_id), known, require_available=require_available, field=field
+                    )
+                    if descriptor is None:
+                        continue
+                    if not descriptor.supports(SourceCapability.FILM_METADATA):
+                        raise ValueError(f"source {source_id!r} cannot provide film metadata")
+                    if descriptor.metadata_fields and meta_field not in descriptor.metadata_fields:
+                        raise ValueError(f"source {source_id!r} does not provide metadata field {meta_field!r}")
 
         for plugin_id, config in hot.plugins.items():
             if not is_external_source_id(plugin_id):
@@ -245,7 +308,7 @@ class PluginManager:
         config: PluginConfig,
     ) -> FilmSourceProvider:
         plugin = self._plugins.get(plugin_id)
-        if plugin is None:
+        if plugin is None or not isinstance(plugin, FilmSourcePlugin):
             raise KeyError(plugin_id)
         typed_config = self.validate_plugin_config(plugin_id, config)
         provider = plugin.build(context, typed_config)
@@ -253,25 +316,23 @@ class PluginManager:
             raise TypeError("plugin build() must return a FilmSourceProvider")
         return provider
 
-    @staticmethod
-    def _build_descriptors(plugins: dict[str, FilmSourcePlugin]) -> tuple[SourceDescriptor, ...]:
-        builtin: list[SourceDescriptor] = []
-        for site in FILM_METADATA_SITES:
-            source_id = str(site)
-            crawler = registry.get(source_id)
-            if crawler is None:
-                continue
-            profile = crawler.profile()
-            builtin.append(
-                SourceDescriptor(
-                    id=source_id,
-                    name=source_id,
-                    version="builtin",
-                    capabilities=frozenset(profile.effective_capabilities()),
-                    urls=(*profile.urls, profile.base_url),
-                    multi_language=profile.multi_language,
-                )
-            )
+    def build_playback_provider(
+        self,
+        plugin_id: str,
+        *,
+        context: PluginContext,
+        config: PluginConfig,
+    ) -> PlaybackProvider:
+        plugin = self._plugins.get(plugin_id)
+        if plugin is None or not isinstance(plugin, PlaybackPlugin):
+            raise KeyError(plugin_id)
+        typed_config = self.validate_plugin_config(plugin_id, config)
+        provider = plugin.build_playback(context, typed_config)
+        if not isinstance(provider, PlaybackProvider):
+            raise TypeError("plugin build_playback() must return a PlaybackProvider")
+        return provider
 
+    @staticmethod
+    def _build_descriptors(plugins: dict[str, InstalledPlugin]) -> tuple[SourceDescriptor, ...]:
         external = [plugin.descriptor() for plugin in plugins.values()]
-        return tuple(sorted([*builtin, *external], key=lambda item: item.id))
+        return tuple(sorted([*builtin_descriptors(), *external], key=lambda item: item.id))

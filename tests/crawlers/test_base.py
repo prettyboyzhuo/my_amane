@@ -122,6 +122,24 @@ def test_classify_block_detects(text: str, failure: RequestFailure | None, expec
     assert (reason is not None) is expected
 
 
+_CLOUDFLARE_REASON_CASES: list[tuple[str, FailureReason | None]] = [
+    ("just a moment... cloudflare challenge", FailureReason.CLOUDFLARE_CHALLENGE),
+    (
+        "<html><head><title>しばらくお待ちください...</title>"
+        '<script>window._cf_chl_opt={cType:"managed"};</script></head><body>captcha</body></html>',
+        FailureReason.CLOUDFLARE_CHALLENGE,
+    ),
+    ("<html><div class='ray-id'>Ray ID: abc</div>cf-ray blocked</html>", FailureReason.CLOUDFLARE_BLOCKED),
+    ("<html><script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'></script></html>", None),
+    ('<html><input name="cf-turnstile-response"></html>', None),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _CLOUDFLARE_REASON_CASES)
+def test_classify_block_cloudflare_reason(text: str, expected: FailureReason | None):
+    assert classify_block(text) is expected
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
@@ -133,7 +151,7 @@ def test_classify_block_detects(text: str, failure: RequestFailure | None, expec
     ],
 )
 def test_classify_block_status_reason(status: int, expected: FailureReason):
-    """HTTP 状态分类语义: 404 非拦截, 429 限速, 5xx 服务端错误 (仅空正文/无正文信号时兜底)."""
+    """HTTP 状态分类语义: 404 非拦截, 429 限速, 5xx 服务端错误 (仅空正文/无正文信号时按状态分类)."""
     failure = RequestFailure(kind=FailureKind.HTTP_STATUS, status=status, message=f"HTTP {status}")
     assert classify_block("", failure=failure) == expected
 
@@ -153,18 +171,18 @@ def test_classify_block_status_reason(status: int, expected: FailureReason):
         ("<html>年齢認証が必要です</html>", 403, FailureReason.AGE_VERIFICATION),
         # 403 + 地域提示 → geo_restricted
         ("This content is not available in your region", 403, FailureReason.GEO_RESTRICTED),
-        # 正常 404 页 (无正文信号) → 状态兜底 not_found
+        # 正常 404 页 (无正文信号) → 按状态分类 not_found
         ("<html><body>404 Not Found</body></html>", 404, FailureReason.NOT_FOUND),
     ],
 )
 def test_classify_block_text_precedes_status(text: str, status: int, expected: FailureReason):
-    """正文启发式优先于状态码: 状态码只在正文无法判定时兜底."""
+    """正文启发式优先于状态码: 状态码只在正文无法判定时分类."""
     failure = RequestFailure(kind=FailureKind.HTTP_STATUS, status=status, message=f"HTTP {status}")
     assert classify_block(text, failure=failure) == expected
 
 
 def test_classify_block_failure_body_text_precedes_status():
-    """失败响应正文 (403 封禁页) 优先于状态码兜底 - task-3/task-5 真实场景."""
+    """失败响应正文 (403 封禁页) 优先于状态码分类 - task-3/task-5 真实场景."""
     body = b"The owner of this website has banned your access based on your browser's behaving\nIP: 103.156.242.198"
     failure = RequestFailure(kind=FailureKind.HTTP_STATUS, status=403, message="HTTP 403", body=body)
     # 异常路径 (get_text 抛 RequestError) 与正文路径走同一判定
@@ -173,7 +191,7 @@ def test_classify_block_failure_body_text_precedes_status():
 
 
 def test_classify_request_error_body_without_signal_falls_back_to_status():
-    """失败正文无拦截信号时回退状态码兜底."""
+    """失败正文无拦截信号时回退到状态码分类."""
     failure = RequestFailure(
         kind=FailureKind.HTTP_STATUS, status=404, message="HTTP 404", body=b"<html><body>404 Not Found</body></html>"
     )

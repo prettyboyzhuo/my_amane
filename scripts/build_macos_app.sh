@@ -38,7 +38,13 @@ fi
 rm -rf "$WORK" "$OUT"
 mkdir -p "$WORK" "$(dirname "$OUT")"
 
-# Excludes: patchright (lazy browser import in net/http.py) and IPython
+# 插件在运行时才被加载, 打包器看不见它们引用的标准库模块; 这里整包收进来 (实测 +1 MiB).
+STDLIB_ARGS=()
+while IFS= read -r name; do
+  STDLIB_ARGS+=(--collect-submodules "$name")
+done < <(.venv/bin/python scripts/stdlib_modules.py)
+
+# Excludes: patchright / camoufox / playwright (本地引擎, 桌面端仅 solver 可用) and IPython
 # (python-dotenv -> dotenv.ipython -> IPython.core.magic).
 .venv/bin/pyinstaller \
   --noconfirm --clean --onedir --console \
@@ -50,17 +56,22 @@ mkdir -p "$WORK" "$(dirname "$OUT")"
   --add-data "$ROOT/alembic.ini:." \
   --collect-submodules amane \
   --exclude-module patchright \
+  --exclude-module camoufox \
+  --exclude-module playwright \
   --exclude-module IPython \
   --collect-all pydantic_ai \
   --collect-all pydantic_graph \
   --collect-all genai_prices \
+  --collect-data zhconv \
+  --hidden-import socksio \
+  "${STDLIB_ARGS[@]}" \
   --copy-metadata genai_prices \
   --copy-metadata pydantic_ai_slim \
   --copy-metadata amane \
   --distpath "$WORK/dist" \
   --workpath "$WORK/build" \
   --specpath "$WORK" \
-  "$ROOT/src/amane/server.py"
+  "$ROOT/scripts/pyinstaller_entry.py"
 
 ONEDIR="$WORK/dist/$NAME"
 [[ -d "$ONEDIR" ]] || { echo "PyInstaller onedir missing: $ONEDIR" >&2; exit 1; }

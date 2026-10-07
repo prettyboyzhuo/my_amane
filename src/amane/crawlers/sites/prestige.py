@@ -1,41 +1,43 @@
-"""Prestige (prestige-av.com) 爬虫 - JSON API, 日本 IP 限定.
+"""JSON API: ``/api/sku/item/{skuId}`` → ``parentProduct.uuid`` → ``/api/product/{uuid}``.
 
-当前 API: /api/sku/item/{skuId} → parentProduct.uuid → /api/product/{uuid}.
-
-搜索 API (/api/search) 只索引在售商品且有模糊匹配问题, 不适用.
+``/api/search`` 只索引在售商品且有模糊匹配, 不允许用作检索.
+站点限定日本 IP: 非日本 IP 下 curl_cffi 得 CloudFront 403, 系统 curl 得地域限制文案.
 """
 
-from typing import Any
+from typing import Any, override
 
 from ...enums import SiteName
+from ...net.connectivity import ConnectivityOutcome, probe_get
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
+
+# 探测样本番号, 必须是在售商品: 站点对不存在的 SKU 返回 404, 探测结论会落成失败.
+_PROBE_SKU = "ABW-350"
 
 
 class PrestigeCrawler(Crawler):
-    """
-    prestige-av.com 爬虫.
-
-    API 流程:
-    1. _search: GET /api/sku/item/{number} → 从 parentProduct 提取 uuid
-       备选: {number_with_dash}, GOOE{number}, GOOE{number_with_dash}
-    2. _scrape: GET /api/product/{uuid} → 解析完整商品数据
-
-    地域限制: prestige 站点限定日本 IP. 非日本 IP:
-    - curl_cffi (BoringSSL) → CloudFront 403 (bot 检测)
-    - 系统 curl (SecureTransport) → HTTP 200 + \"not available in your region\"
-    日本 IP 下 API 直接返回 JSON.
-    """
-
     @classmethod
     def profile(cls) -> CrawlerProfile:
         return CrawlerProfile(name=SiteName.PRESTIGE, base_url="https://www.prestige-av.com")
 
+    @override
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """真实入口是 SKU JSON API; 首页带年龄墙, 探测首页会把可用的来源报成不可达."""
+        return await probe_get(
+            self.client.web_client,
+            self._sku_url(_PROBE_SKU),
+            cookies=self.cookies,
+            headers=self.headers,
+        )
+
+    def _sku_url(self, sku_id: str) -> str:
+        return f"{self.base_url}/api/sku/item/{sku_id}"
+
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
         number = query.number.upper()
 
-        # 构造候选 SKU ID: ABW-350, ABW350, GOOEABW-350, GOOEABW350
+        # 候选 SKU: 带横线 / 无横线 / GOOE 特典前缀.
         number_no_dash = number.replace("-", "")
         candidates = [
             number,  # ABW-350
@@ -47,7 +49,7 @@ class PrestigeCrawler(Crawler):
         last_error: RequestError | None = None
         any_ok = False
         for sku_id in candidates:
-            sku_url = f"{self.base_url}/api/sku/item/{sku_id}"
+            sku_url = self._sku_url(sku_id)
             try:
                 data = await self.client.get_json(sku_url)
             except RequestError as exc:
@@ -74,7 +76,7 @@ class PrestigeCrawler(Crawler):
         if not data or not isinstance(data, dict):
             return None
 
-        # 番号从 SKU 通常版中提取 (跳过 GOOE/GOO 前缀的特典 SKU)
+        # 番号取非 GOOE/GOO 前缀的通常版 SKU; 特典 SKU 不当作番号.
         sku_list: list[dict[str, Any]] = data.get("sku") or []
         number = ""
         for sku in sku_list:
@@ -92,30 +94,27 @@ class PrestigeCrawler(Crawler):
         if release and "T" in release:
             release = release.split("T")[0]
 
-        runtime = data.get("playTime")  # int, 分钟
+        runtime = data.get("playTime")
 
-        # 演员
         actors: list[str] = []
         for a in data.get("actress") or []:
             name = a.get("name", "") if isinstance(a, dict) else str(a)
             if name:
                 actors.append(name)
 
-        # 导演
         directors: list[str] = []
         for d in data.get("directors") or []:
             name = d.get("name", "") if isinstance(d, dict) else str(d)
             if name:
                 directors.append(name)
 
-        # 标签
         tags: list[str] = []
         for g in data.get("genre") or []:
             name = g.get("name", "") if isinstance(g, dict) else str(g)
             if name:
                 tags.append(name)
 
-        # maker/label/series - 可能是 dict 或 list
+        # maker/label/series 可能是 dict 或 list.
         def _extract_name(value: Any) -> str | None:
             if isinstance(value, dict):
                 return value.get("name") or None
@@ -131,20 +130,20 @@ class PrestigeCrawler(Crawler):
         label_name = _extract_name(data.get("label"))
         series_name = _extract_name(data.get("series"))
 
-        # 图片 - 构建完整 URL
         def _image_url(path: str | None) -> str | None:
+            # 图片在站点自身的 /api/media/ 下: 新片为 {x}/{y}/{uuid}.jpg, 老片为 goods/prestige/...
             if not path:
                 return None
-            return f"https://image.prestige-av.com/{path}" if not path.startswith("http") else path
+            return f"{self.base_url}/api/media/{path}" if not path.startswith("http") else path
 
-        thumb_path = (data.get("thumbnail") or {}).get("path") if isinstance(data.get("thumbnail"), dict) else None
-        package_path = (
+        # thumbnail 是竖版前封, packageImage 是横版整幅; 槽位按朝向取 (poster 竖版 / thumb 横版), 故两字段交叉使用.
+        front_path = (data.get("thumbnail") or {}).get("path") if isinstance(data.get("thumbnail"), dict) else None
+        spread_path = (
             (data.get("packageImage") or {}).get("path") if isinstance(data.get("packageImage"), dict) else None
         )
-        thumb_url = _image_url(thumb_path)
-        poster_url = _image_url(package_path)
+        poster_url = _image_url(front_path)
+        thumb_url = _image_url(spread_path)
 
-        # extrafanart - sample images + media
         extrafanart: list[str] = []
         for img_list_key in ("media",):
             for img in data.get(img_list_key) or []:
@@ -158,7 +157,7 @@ class PrestigeCrawler(Crawler):
         return MediaMetadata(
             number=number,
             title=title or None,
-            actors=actors,
+            actors=film_actors(actors),
             studio=studio,
             publisher=label_name or maker_name or None,
             release=release or None,

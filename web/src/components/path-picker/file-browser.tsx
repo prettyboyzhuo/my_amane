@@ -8,6 +8,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Tooltip,
   UnstyledButton,
 } from "@mantine/core";
 import { IconChevronRight, IconEye, IconEyeOff, IconFile, IconFolder } from "@tabler/icons-react";
@@ -40,7 +41,7 @@ export function FileBrowser({
   const { t } = useTranslation(["fileBrowser", "common"]);
   const [path, setPath] = useState(initialPath);
   const [pathInputValue, setPathInputValue] = useState(initialPath);
-  // 相对路径输入时的基准目录 (当前浏览位置); 绝对导航时清空, 由服务端缺省兜底.
+  // 相对路径输入时的基准目录 (当前浏览位置); 绝对导航时清空, 由服务端缺省回退.
   const [base, setBase] = useState<string | null>(null);
   const [selectedPaths, setSelectedPaths] = useState(new Set<string>());
   const [showHidden, setShowHidden] = useState(false);
@@ -107,7 +108,7 @@ export function FileBrowser({
 
   const handleConfirm = () => {
     if (!allowMultiple && selectedPaths.size === 0 && selectionType !== "file") {
-      // 回传规范路径: 服务器 resolve 后的绝对形态 (选目录兜底用)
+      // 回传规范路径: 服务器 resolve 后的绝对形态 (选目录时回退)
       onSelect([data?.path ?? path]);
     } else {
       onSelect(Array.from(selectedPaths));
@@ -180,15 +181,17 @@ export function FileBrowser({
             placeholder="Enter path..."
             style={{ flex: 1, minWidth: 0 }}
           />
-          <Button
-            type="button"
-            variant={showHidden ? "light" : "outline"}
-            size="sm"
-            onClick={() => setShowHidden(!showHidden)}
-            title={t("toggleHidden")}
-          >
-            {showHidden ? <IconEye size={16} /> : <IconEyeOff size={16} />}
-          </Button>
+          <Tooltip label={t("toggleHidden")}>
+            <Button
+              type="button"
+              variant={showHidden ? "light" : "outline"}
+              size="sm"
+              onClick={() => setShowHidden(!showHidden)}
+              aria-label={t("toggleHidden")}
+            >
+              {showHidden ? <IconEye size={16} /> : <IconEyeOff size={16} />}
+            </Button>
+          </Tooltip>
           <Button type="submit" size="sm">
             Go
           </Button>

@@ -1,4 +1,4 @@
-"""面向 UI 的任务结果摘要 - 从任务摘要 (summary.json) 直接投影, 非记录导出."""
+"""从 summary.json 直接投影, 非记录导出."""
 
 from __future__ import annotations
 
@@ -19,18 +19,17 @@ _SITE_OUTCOME_TYPES = frozenset({TaskType.SCRAPE, TaskType.ACTOR_SCRAPE})
 
 
 class TaskReport(BaseModel):
-    """任务详情摘要面板用的精简投影 (outcomes 与 summary.json 同一结构)."""
+    """outcomes 与 summary.json 同一结构."""
 
     headline: str | None = None
     metadata_id: int | None = None
-    """SCRAPE 成功时来自 task.result.metadata_id, 供 UI 跳转元数据详情."""
     actor_id: int | None = None
-    """ACTOR_SCRAPE 来自 result.actor_id, 缺则回落 payload.actor_id, 供 UI 跳转演员详情."""
+    """ACTOR_SCRAPE 缺 result.actor_id 时回退 payload.actor_id."""
     outcomes: list[SiteOutcomeRecord] = Field(default_factory=list)
 
 
 def build_task_report(log_dir: Path, task: Task) -> TaskReport:
-    """从 task + summary.json 构建 UI 摘要 (与落盘记录同源, 不做二次组装)."""
+    """与落盘 summary.json 同源, 不做二次组装."""
     headline = task.error if task.status == TaskStatus.FAILED else None
     metadata_id = _positive_id(task.result, "metadata_id")
     actor_id = _actor_id_from_task(task)

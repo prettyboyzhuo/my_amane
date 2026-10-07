@@ -4,18 +4,20 @@ from typing import NamedTuple, Unpack
 from sqlalchemy import func, or_
 from sqlalchemy.sql.functions import count
 from sqlmodel import col, select
+from sqlmodel.sql.expression import SelectOfScalar
 
 from ...parsing import ContentType, FilePhase, FilePhaseSummary, Mosaic, file_phase_from_path, summarize_file_phases
+from ...utils.path import nfc_path
 from ..models import MediaFile, MediaFileStatus, MediaSortField, SortOrder
 from ..repo_types import _MEDIA_SORT_COLUMNS, MediaFileUpdates, _apply_media_phase_filters, _order_clause, _utcnow
 from .base import RepositoryMixinBase
 
-# SQLite 绑定变量上限 (旧编译 999 / 3.32+ 默认 32766). 500 给语句里其它占位留余量.
+# SQLite 绑定变量上限. 500 给语句里其它占位留余量.
 SQL_IN_CHUNK_SIZE = 500
 
 
 def _apply_path_phase(media: MediaFile) -> None:
-    """用当前 path 覆盖文件相位列. path 是真值, 这些列是投影."""
+    """path 是真值, 相位列是投影; 创建与改 path 时必须回填."""
     phase = file_phase_from_path(media.path)
     media.content_type = phase["content_type"]
     media.mosaic = phase["mosaic"]
@@ -24,7 +26,7 @@ def _apply_path_phase(media: MediaFile) -> None:
 
 
 def file_phase_of(media: MediaFile) -> FilePhase:
-    """从已落库列组装 FilePhase (不再解析 path)."""
+    """从已落库列组装, 不再解析 path."""
     return FilePhase(
         content_type=media.content_type,
         mosaic=media.mosaic,
@@ -34,14 +36,15 @@ def file_phase_of(media: MediaFile) -> FilePhase:
 
 
 class MetadataFilesSummary(NamedTuple):
-    """当前页 Metadata 的关联文件计数 + 相位聚合."""
-
     file_count: int
     phase: FilePhaseSummary
 
 
 class MediaRepoMixin(RepositoryMixinBase):
     async def create_media_file(self, library_id: int, **updates: Unpack[MediaFileUpdates]) -> MediaFile:
+        path = updates.get("path")
+        if path is not None:
+            updates["path"] = nfc_path(path)
         async with self._session() as session:
             media = MediaFile(library_id=library_id, **updates)
             _apply_path_phase(media)
@@ -56,13 +59,13 @@ class MediaRepoMixin(RepositoryMixinBase):
 
     async def get_media_file_by_path(self, path: str) -> MediaFile | None:
         async with self._session() as session:
-            stmt = select(MediaFile).where(MediaFile.path == path)
+            stmt = select(MediaFile).where(MediaFile.path == nfc_path(path))
             result = await session.exec(stmt)
             return result.first()
 
     async def get_valid(self, disk_paths: Iterable[str]) -> Sequence[MediaFile]:
-        """获取 disk_paths 与数据库现有条目的交集. 路径按 SQL_IN_CHUNK_SIZE 分批 IN, 避开绑定变量上限."""
-        paths = list(disk_paths)
+        """路径按 SQL_IN_CHUNK_SIZE 分批 IN, 避开绑定变量上限. 比较前统一 NFC."""
+        paths = [nfc_path(p) for p in disk_paths]
         if not paths:
             return []
         found: list[MediaFile] = []
@@ -75,18 +78,16 @@ class MediaRepoMixin(RepositoryMixinBase):
         return found
 
     async def get_invalid(self, disk_paths: Iterable[str], library_id: int | None = None) -> Sequence[MediaFile]:
-        """获取数据库中路径不在 disk_paths 的条目. library_id 收窄到单库, 避免扫 A 误删 B.
-
-        在 Python 做集合差, 不走 SQL NOT IN: 数万路径的 NOT IN 不能按批拆
-        (每批 NOT IN 会把其它批里真实存在的路径误判为失效).
+        """library_id 须收窄到单库, 否则扫描 A 会误删 B.
+        在 Python 做集合差, 禁止 SQL NOT IN: 分批 NOT IN 会把其它批里真实存在的路径误判为失效.
         """
         if library_id is None and not disk_paths:
             return []
         files = await self.list_media_files(library_id=library_id, limit=None)
-        disk = frozenset(disk_paths)
+        disk = frozenset(nfc_path(p) for p in disk_paths)
         if not disk:
             return files
-        return [f for f in files if f.path not in disk]
+        return [f for f in files if nfc_path(f.path) not in disk]
 
     async def list_media_files(
         self,
@@ -98,6 +99,7 @@ class MediaRepoMixin(RepositoryMixinBase):
         sort_by: MediaSortField = MediaSortField.UPDATED_AT,
         order: SortOrder = SortOrder.DESC,
         metadata_ids: Sequence[int] | None = None,
+        ids: Sequence[int] | None = None,
         *,
         has_subtitle: bool | None = None,
         mosaic: Mosaic | None = None,
@@ -105,27 +107,43 @@ class MediaRepoMixin(RepositoryMixinBase):
         definition: str | None = None,
         content_type: ContentType | None = None,
     ) -> list[MediaFile]:
-        """分页列出媒体文件. metadata_ids: 仅返回挂载到这些 Metadata 的文件; limit None 不分页."""
+        """limit None 不分页. ids 为空列表时直接返回空, 不查库. ids 按 SQL_IN_CHUNK_SIZE 分批 IN."""
+        id_list = list(ids) if ids is not None else None
+        if id_list is not None and not id_list:
+            return []
         async with self._session() as session:
-            stmt = select(MediaFile)
-            if status is not None:
-                stmt = stmt.where(col(MediaFile.status).in_(status))
-            if library_id is not None:
-                stmt = stmt.where(col(MediaFile.library_id) == library_id)
-            if metadata_ids is not None:
-                stmt = stmt.where(col(MediaFile.metadata_id).in_(metadata_ids))
-            if search:
-                pattern = f"%{search}%"
-                stmt = stmt.where(or_(col(MediaFile.path).ilike(pattern), col(MediaFile.number).ilike(pattern)))
-            stmt = _apply_media_phase_filters(
-                stmt,
-                has_subtitle=has_subtitle,
-                mosaic=mosaic,
-                uncensored=uncensored,
-                definition=definition,
-                content_type=content_type,
-            )
-            # 次级排序键 id 保证分页稳定 (主排序键有并列值时顺序确定).
+
+            def apply_filters(stmt: SelectOfScalar[MediaFile], chunk: list[int] | None) -> SelectOfScalar[MediaFile]:
+                if status is not None:
+                    stmt = stmt.where(col(MediaFile.status).in_(status))
+                if library_id is not None:
+                    stmt = stmt.where(col(MediaFile.library_id) == library_id)
+                if chunk is not None:
+                    stmt = stmt.where(col(MediaFile.id).in_(chunk))
+                if metadata_ids is not None:
+                    stmt = stmt.where(col(MediaFile.metadata_id).in_(metadata_ids))
+                if search:
+                    pattern = f"%{search}%"
+                    stmt = stmt.where(or_(col(MediaFile.path).ilike(pattern), col(MediaFile.number).ilike(pattern)))
+                return _apply_media_phase_filters(
+                    stmt,
+                    has_subtitle=has_subtitle,
+                    mosaic=mosaic,
+                    uncensored=uncensored,
+                    definition=definition,
+                    content_type=content_type,
+                )
+
+            if id_list is not None and len(id_list) > SQL_IN_CHUNK_SIZE and limit is None:
+                found: list[MediaFile] = []
+                for start in range(0, len(id_list), SQL_IN_CHUNK_SIZE):
+                    chunk = id_list[start : start + SQL_IN_CHUNK_SIZE]
+                    stmt = apply_filters(select(MediaFile), chunk)
+                    result = await session.exec(stmt)
+                    found.extend(result.all())
+                return found
+
+            stmt = apply_filters(select(MediaFile), id_list)
             stmt = (
                 stmt.order_by(_order_clause(_MEDIA_SORT_COLUMNS[sort_by], order), col(MediaFile.id).asc())
                 .offset(offset)
@@ -172,9 +190,9 @@ class MediaRepoMixin(RepositoryMixinBase):
             media = await session.get(MediaFile, media_id)
             if media is None:
                 return None
-            # 显式赋值: 字段名与类型由 MediaFileUpdates(TypedDict) 与 MediaFile 静态保证一致.
+            # 显式赋值, 禁止 setattr; 字段集由 MediaFileUpdates 与 MediaFile 静态对齐.
             if "path" in updates:
-                media.path = updates["path"]
+                media.path = nfc_path(updates["path"])
                 _apply_path_phase(media)
             if "number" in updates:
                 media.number = updates["number"]
@@ -206,7 +224,7 @@ class MediaRepoMixin(RepositoryMixinBase):
             return True
 
     async def count_media_by_metadata_ids(self, metadata_ids: Sequence[int]) -> dict[int, int]:
-        """批量统计各 Metadata 关联的 MediaFile 数量; 无关联的 id 不出现在结果中."""
+        """无关联的 id 不出现在结果中."""
         ids = [i for i in metadata_ids if i]
         if not ids:
             return {}
@@ -220,7 +238,7 @@ class MediaRepoMixin(RepositoryMixinBase):
             return {mid: n for mid, n in result.all() if mid is not None}
 
     async def summarize_media_by_metadata_ids(self, metadata_ids: Sequence[int]) -> dict[int, MetadataFilesSummary]:
-        """批量聚合各 Metadata 关联文件计数与相位; 无关联的 id 不出现."""
+        """无关联的 id 不出现."""
         ids = [i for i in metadata_ids if i]
         if not ids:
             return {}
@@ -238,7 +256,12 @@ class MediaRepoMixin(RepositoryMixinBase):
             }
 
     async def get_media_by_metadata_id(self, metadata_id: int) -> list[MediaFile]:
+        """按入库顺序 (id 升序) 返回条目的文件.
+
+        顺序是契约的一部分: 组装给播放源的快照按这个顺序排列, 来源据此决定列表顺序与默认选中的
+        那一条. 不排序时得到的是 SQLite 的扫描顺序, 同一个条目可能换一条默认流.
+        """
         async with self._session() as session:
-            stmt = select(MediaFile).where(MediaFile.metadata_id == metadata_id)
+            stmt = select(MediaFile).where(MediaFile.metadata_id == metadata_id).order_by(col(MediaFile.id))
             result = await session.exec(stmt)
             return list(result.all())

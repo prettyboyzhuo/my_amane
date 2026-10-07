@@ -1,6 +1,5 @@
 import { create } from "zustand";
 
-/** 单个任务的进度快照, 来自 WS `task.progress` 事件 ({task_id,current,total,message}). */
 export interface TaskProgress {
   current: number;
   total: number;
@@ -16,7 +15,7 @@ interface ProgressState {
 
 /**
  * 任务进度 client 态 -- 高频 `task.progress` 事件写这里, 而非 invalidate REST query
- * (符合 frontend.md 状态边界: 客户端流走 Zustand, 不污染 TanStack Query 缓存).
+ * (符合 frontend.md 状态边界: 客户端流写入 Zustand, 不污染 TanStack Query 缓存).
  */
 export const useProgressStore = create<ProgressState>((set) => ({
   byTask: {},

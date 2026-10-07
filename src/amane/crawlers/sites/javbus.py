@@ -6,8 +6,8 @@ from parsel import Selector
 from ...enums import SiteName
 from ..base import Crawler, CrawlerProfile
 from ..http import RequestError
-from ..models import FetchOptions, MediaMetadata, SearchQuery
-from ..parsing import extract_all_texts, extract_text
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
+from ..parsing import extract_all_texts, extract_text, fold_number
 
 
 class JavBusCrawler(Crawler):
@@ -18,13 +18,13 @@ class JavBusCrawler(Crawler):
             base_url="https://www.javbus.com",
             cookies={"dv": "1"},
             headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6"},
+            same_origin_referer=True,
         )
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """搜索番号, 返回详情页 URL."""
         number = query.number
 
-        # 先尝试直接访问
+        # 先尝试直接访问详情页.
         direct_url = f"{self.base_url}/{number}"
         try:
             text = await self.client.get_html(direct_url, cookies=self.cookies, headers=self.headers)
@@ -36,16 +36,26 @@ class JavBusCrawler(Crawler):
             if title:
                 return direct_url
 
-        # 回退到搜索
+        # 未命中则回退搜索. 站内检索为模糊匹配, 会返回番号相近的条目, 因此逐条比对结果
+        # <date> 中的番号: 精确优先, 再忽略短横线与空格; 全不相符视为来源无此番号.
         search_url = f"{self.base_url}/search/{number}&type=&parent=ce"
         text = await self.client.get_html(search_url, cookies=self.cookies, headers=self.headers)
         html = Selector(text=text)
-        results = html.xpath("//a[@class='movie-box']/@href").getall()
-        urls = [urljoin(self.base_url, r) for r in results]
-        return urls[0] if urls else None
+        folded = fold_number(number)
+        folded_hit: str | None = None
+        for item in html.xpath("//a[@class='movie-box']"):
+            href = item.xpath("./@href").get()
+            found = extract_text(item, "div[@class='photo-info']//date[1]/text()")
+            if not href or not found:
+                continue
+            url = urljoin(self.base_url, href)
+            if found.casefold() == number.casefold():
+                return url
+            if folded_hit is None and fold_number(found) == folded:
+                folded_hit = url
+        return folded_hit
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """解析 JavBus 详情页."""
         text = await self.client.get_html(url, cookies=self.cookies, headers=self.headers)
         html = Selector(text=text)
 
@@ -83,13 +93,12 @@ class JavBusCrawler(Crawler):
         series = extract_text(html, '//a[contains(@href, "/series/")]/text()')
         tags = extract_all_texts(html, '//span[@class="genre"]/label/a[contains(@href, "/genre/")]/text()')
         extrafanart = extract_all_texts(html, "//div[@id='sample-waterfall']/a/@href")
-        # 确保 extrafanart URL 是绝对路径
         extrafanart = [urljoin(url, u) for u in extrafanart]
 
         return MediaMetadata(
             number=number,
             title=title,
-            actors=actors,
+            actors=film_actors(actors),
             studio=studio or None,
             publisher=publisher or None,
             release=release,

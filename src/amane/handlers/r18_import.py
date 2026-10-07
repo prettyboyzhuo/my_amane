@@ -1,9 +1,6 @@
-"""R18_IMPORT 任务 handler - 下载并导入 r18.dev dump.
-
-定时任务 (RoutineType.R18_IMPORT) 或手动触发. 重活 (下载 GB 级 dump + psql 导入), 走 worker
-而非 cron 循环内联. 已导入版本的 ETag 持久化到 data_dir/r18_import.json, 远程未变化时跳过.
-
-dsn 未配置时直接返回失败 (success=False), 不抛错.
+"""下载并导入 r18.dev dump. ETag 持久化到 state_dir/r18_import.json, 远程未变化时跳过.
+必须在 worker 中执行, 不能在 cron 循环内联 (下载体量为 GB 级).
+dsn 未配置时返回失败, 不抛异常.
 """
 
 import json
@@ -24,8 +21,6 @@ logger = structlog.get_logger()
 
 
 class R18ImportHandler(TaskHandler[R18ImportPayload, R18ImportResult]):
-    """处理 R18_IMPORT 任务 - 编排 dump 下载与导入."""
-
     def __init__(self, config: R18Config, web_client: WebClient, state_dir: Path):
         super().__init__(payload_t=R18ImportPayload, result_t=R18ImportResult)
         self._config = config
@@ -33,7 +28,6 @@ class R18ImportHandler(TaskHandler[R18ImportPayload, R18ImportResult]):
         self._state_path = state_dir / "r18_import.json"
 
     def _load_meta(self) -> RemoteMeta | None:
-        """读取上次成功导入的 dump 元数据."""
         if not self._state_path.exists():
             return None
         try:
@@ -43,7 +37,6 @@ class R18ImportHandler(TaskHandler[R18ImportPayload, R18ImportResult]):
             return None
 
     def _save_meta(self, meta: RemoteMeta) -> None:
-        """将已导入的 dump 元数据持久化到状态文件."""
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._state_path.write_text(json.dumps(meta._asdict()), encoding="utf-8")
 
@@ -51,6 +44,7 @@ class R18ImportHandler(TaskHandler[R18ImportPayload, R18ImportResult]):
         if not self._config.enabled:
             return TaskResult(success=False, error="r18.dsn 未配置, 无法导入")
 
+        # 远程未变化则跳过下载; force 时忽略比对.
         current = None if payload.force else self._load_meta()
         importer = R18Importer(self._config, self._web)
         success, error, meta = await importer.run(current_meta=current)

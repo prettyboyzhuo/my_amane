@@ -1,11 +1,12 @@
 """更新请求模型 (req) · repo 入参 (TypedDict) · DB 模型 三者的兼容性保证.
 
-设计背景见 docs/dev/data-model.md "可写面与兼容性". 安全性由三层共同保证, 本文件分别验证:
+设计背景见 docs/dev/data-model.md "可写字段与兼容性". 安全性由三层共同保证, 本文件分别验证:
 
 1. ``create_partial_model`` 的正确性 (``TestCreatePartialModel``)
-   -- req model 全部由它派生, 故只要它正确, req↔DB 的字段/类型兼容性即由构造保证.
+   -- 多数 req model 由它派生, 故只要它正确, 这些模型的字段/类型兼容性即由构造保证;
+      个别需要字段约束而显式声明的 req model 由第 2 节的字段纪律覆盖.
 2. 字段纪律 (``TestFieldDiscipline``)
-   -- req 字段 ⊆ repo TypedDict 字段 ⊆ DB 列; 只读/内部字段不出现在外部可写面.
+   -- req 字段 ⊆ repo TypedDict 字段 ⊆ DB 列; 只读/内部字段不出现在外部可写字段.
    手写响应子集 ``@subset_of(..., covariant=)`` 导入时校验.
 3. 序列化保真 (``TestRepoRoundTrip``)
    -- repo update 去反射后, 显式赋值的类型兼容性由静态检查保证; 此处用 fuzzy + DB 往返
@@ -36,9 +37,17 @@ from amane.api.models import (
     PartialMetadata,
     ScheduleUpdateRequest,
 )
-from amane.db import Feed, Library, MediaFile, Metadata, Repository, Schedule
+from amane.api.models.saved_queries import SavedQueryUpdateRequest
+from amane.db import Feed, Library, MediaFile, Metadata, Repository, SavedQuery, Schedule
 from amane.db.models import RoutineType
-from amane.db.repo_types import FeedUpdates, LibraryUpdates, MediaFileUpdates, MetadataFields, ScheduleUpdates
+from amane.db.repo_types import (
+    FeedUpdates,
+    LibraryUpdates,
+    MediaFileUpdates,
+    MetadataFields,
+    SavedQueryUpdates,
+    ScheduleUpdates,
+)
 from amane.utils.model import assert_model_subset, create_partial_model
 from tests.schema_template import copy_schema
 
@@ -276,7 +285,7 @@ class TestCreatePartialModel:
         partial_with = create_partial_model(_Plain, json_schema_extras=None)
         assert partial_no.model_json_schema() == partial_with.model_json_schema()
 
-    # --- extra_fields (非 DB 列扩展可写面) ---
+    # --- extra_fields (非 DB 列扩展可写字段) ---
 
     def test_extra_fields_added_and_partialized(self):
         """extra_fields 字段进入结果模型: 缺省 None, 可写入, 显式 null 被拒 (同不可空列)."""
@@ -308,7 +317,7 @@ class TestCreatePartialModel:
 # 2. 字段纪律: req ⊆ TypedDict ⊆ DB; 只读字段不外泄
 # ============================================================================
 
-# (req model, repo TypedDict, DB 模型, 禁止出现在外部可写面的字段)
+# (req model, repo TypedDict, DB 模型, 禁止出现在外部可写字段的字段)
 _DISCIPLINE = [
     (
         MediaFileUpdateRequest,
@@ -325,8 +334,14 @@ _DISCIPLINE = [
         Feed,
         {"id", "etag", "last_modified", "next_fetch_at", "last_fetched_at", "last_error", "last_enqueued"},
     ),
+    (
+        SavedQueryUpdateRequest,
+        SavedQueryUpdates,
+        SavedQuery,
+        {"id", "entity", "session_id", "persisted", "created_at", "updated_at"},
+    ),
 ]
-_DISCIPLINE_IDS = ["media", "library", "schedule", "metadata", "feed"]
+_DISCIPLINE_IDS = ["media", "library", "schedule", "metadata", "feed", "saved_query"]
 
 
 class TestCovariantSubsetOfLibrary:
@@ -351,7 +366,7 @@ class TestFieldDiscipline:
 
     @pytest.mark.parametrize(("req", "typed_dict", "db", "forbidden"), _DISCIPLINE, ids=_DISCIPLINE_IDS)
     def test_typeddict_subset_of_db_columns(self, req, typed_dict, db, forbidden):
-        """repo 入参字段必须都是真实 DB 列, 否则去反射后的显式赋值无法静态通过 (此处再兜底)."""
+        """repo 入参字段必须都是真实 DB 列, 否则去反射后的显式赋值无法静态通过 (此处再校验)."""
         td_fields = set(get_type_hints(typed_dict))
         db_fields = set(db.model_fields)
         unknown = td_fields - db_fields
@@ -359,7 +374,7 @@ class TestFieldDiscipline:
 
     @pytest.mark.parametrize(("req", "typed_dict", "db", "forbidden"), _DISCIPLINE, ids=_DISCIPLINE_IDS)
     def test_readonly_fields_not_externally_writable(self, req, typed_dict, db, forbidden):
-        """只读/内部字段绝不出现在外部可写面 (req model)."""
+        """只读/内部字段绝不出现在外部可写字段 (req model)."""
         leaked = set(req.model_fields) & forbidden
         assert not leaked, f"{req.__name__} 越权暴露只读/内部字段: {leaked}"
 
@@ -439,6 +454,10 @@ _ROUNDTRIP = [
                 "trailer_template",
                 "subtitle_template",
                 "strm_content_template",
+                "ingest",
+                "cloud_path",
+                # path 解析为真实路径 (符号链接解析后), 与写入值不再逐字相同
+                "path",
             }
         ),
     ),

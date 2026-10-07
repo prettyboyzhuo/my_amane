@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 
 def build_args(input: Path, output: Path, config: SrConfig) -> list[str]:
-    """将 SrConfig + input/output 转换为 CLI 参数列表."""
     preset_meta = get_preset_meta(config.preset)
     tool = preset_meta.tool
 

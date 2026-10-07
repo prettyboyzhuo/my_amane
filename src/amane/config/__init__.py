@@ -1,9 +1,9 @@
 from .manager import (
     SAFE_DIRS_ALLOW_ALL,
     ActorScrapingConfig,
-    AgentApiType,
     AgentConfig,
     AgentThinkingMode,
+    BrowserConfig,
     ColdSettings,
     ConfigManager,
     DownloadableResource,
@@ -24,9 +24,9 @@ from .manager import (
 __all__ = [
     "SAFE_DIRS_ALLOW_ALL",
     "ActorScrapingConfig",
-    "AgentApiType",
     "AgentConfig",
     "AgentThinkingMode",
+    "BrowserConfig",
     "ColdSettings",
     "ConfigManager",
     "DownloadableResource",

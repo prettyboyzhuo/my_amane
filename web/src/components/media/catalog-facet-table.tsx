@@ -1,9 +1,11 @@
 import {
   ActionIcon,
   Badge,
+  Box,
   Button,
   Checkbox,
   Group,
+  Menu,
   Modal,
   Stack,
   Table,
@@ -11,14 +13,15 @@ import {
   TextInput,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconArrowMerge, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconArrowMerge, IconDots, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createUserTagMutation, listFacetsQueryKey } from "@/client/@tanstack/react-query.gen";
+import { createUserTagsMutation, listFacetsQueryKey } from "@/client/@tanstack/react-query.gen";
 import type { FacetKind, FacetResponse, FacetSortField, SortOrder } from "@/client/types.gen";
 import { FacetRulesPanel } from "./facet-rules-panel";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 import { ListToolbar } from "@/components/common/list-toolbar";
 import { SelectionBar } from "@/components/common/selection-bar";
 import { SortableTh } from "@/components/common/sortable-th";
@@ -26,6 +29,7 @@ import { useFacetIdentityActions } from "@/hooks/use-facet-identity-actions";
 import { useIdSelection } from "@/hooks/use-id-selection";
 import { extractErrorMessage } from "@/lib/api-error";
 import { useUIStore } from "@/stores/ui";
+import classes from "./catalog-facet-table.module.css";
 
 export interface CatalogFacetTableProps {
   kind: FacetKind;
@@ -66,9 +70,14 @@ export function CatalogFacetTable({
   const [newTagName, setNewTagName] = useState("");
 
   const createMutation = useMutation({
-    ...createUserTagMutation(),
-    onSuccess: () => {
-      notifications.show({ message: t("common:toast.userTagCreated"), color: "blue" });
+    ...createUserTagsMutation(),
+    onSuccess: (res) => {
+      // 名称已存在时端点复用原行而不报错, 说「已创建」不成立
+      notifications.show({
+        message:
+          res.created > 0 ? t("common:toast.userTagCreated") : t("common:toast.userTagExists"),
+        color: "blue",
+      });
       setNewTagName("");
       identity.invalidate();
     },
@@ -111,7 +120,7 @@ export function CatalogFacetTable({
                   leftSection={<IconPlus size={14} />}
                   disabled={!newTagName.trim()}
                   loading={createMutation.isPending}
-                  onClick={() => createMutation.mutate({ body: { name: newTagName.trim() } })}
+                  onClick={() => createMutation.mutate({ body: { names: [newTagName.trim()] } })}
                 >
                   {t("common:actions.add")}
                 </Button>
@@ -126,7 +135,7 @@ export function CatalogFacetTable({
           ) : undefined
         }
       >
-        <Table stickyHeader highlightOnHover verticalSpacing="sm">
+        <Table stickyHeader highlightOnHover verticalSpacing="sm" className={classes.table}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th w={36}>
@@ -147,7 +156,7 @@ export function CatalogFacetTable({
                 onSort={onSort}
                 w={100}
               />
-              <Table.Th ta="right" w={160}>
+              <Table.Th ta="right" className={classes.actionsColumn}>
                 {t("columns.actions")}
               </Table.Th>
             </Table.Tr>
@@ -173,30 +182,65 @@ export function CatalogFacetTable({
                   <Badge variant="light">{facet.count}</Badge>
                 </Table.Td>
                 <Table.Td>
-                  <Group gap={4} justify="flex-end">
-                    <ActionIcon
+                  {/* 窄屏动作列只容得下一个按钮, 三个动作移入菜单. */}
+                  <Group gap={4} justify="flex-end" wrap="nowrap" visibleFrom="sm">
+                    <HintedActionIcon
                       variant="subtle"
-                      title={t("common:actions.edit")}
+                      label={t("common:actions.edit")}
                       onClick={() => identity.openRename({ id: facet.id, name: facet.name })}
                     >
                       <IconPencil size={16} />
-                    </ActionIcon>
-                    <ActionIcon
+                    </HintedActionIcon>
+                    <HintedActionIcon
                       variant="subtle"
-                      title={t("manage.merge", { defaultValue: "合并到此项" })}
+                      label={t("manage.merge", { defaultValue: "合并到此项" })}
                       onClick={() => void identity.openMerge(facet.id, selected)}
                     >
                       <IconArrowMerge size={16} />
-                    </ActionIcon>
-                    <ActionIcon
+                    </HintedActionIcon>
+                    <HintedActionIcon
                       variant="subtle"
                       color="red"
-                      title={t("common:actions.delete")}
+                      label={t("common:actions.delete")}
                       onClick={() => void identity.openDelete({ id: facet.id, name: facet.name })}
                     >
                       <IconTrash size={16} />
-                    </ActionIcon>
+                    </HintedActionIcon>
                   </Group>
+                  {/* Menu 不接受 visibleFrom / hiddenFrom, 显隐由外层 Box 承担. */}
+                  <Box hiddenFrom="sm" style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <Menu position="bottom-end" withinPortal>
+                      <Menu.Target>
+                        <ActionIcon size="sm" variant="subtle" aria-label={t("columns.actions")}>
+                          <IconDots size={14} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<IconPencil size={14} />}
+                          onClick={() => identity.openRename({ id: facet.id, name: facet.name })}
+                        >
+                          {t("common:actions.edit")}
+                        </Menu.Item>
+                        <Menu.Item
+                          leftSection={<IconArrowMerge size={14} />}
+                          onClick={() => void identity.openMerge(facet.id, selected)}
+                        >
+                          {t("manage.merge", { defaultValue: "合并到此项" })}
+                        </Menu.Item>
+                        <Menu.Divider />
+                        <Menu.Item
+                          color="red"
+                          leftSection={<IconTrash size={14} />}
+                          onClick={() =>
+                            void identity.openDelete({ id: facet.id, name: facet.name })
+                          }
+                        >
+                          {t("common:actions.delete")}
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Box>
                 </Table.Td>
               </Table.Tr>
             ))}

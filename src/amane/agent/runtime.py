@@ -1,22 +1,14 @@
-"""Agent 运行时装配: 模型工厂 / 思考设置 / 系统提示.
-
-包含上游模型工厂、会话思考覆盖解析与 Agent 工厂 (toolsets + capabilities).
-"""
-
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_ai.models import Model
-from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
-from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings, ThinkingLevel
 from pydantic_ai.usage import UsageLimits
 
-from ..config import AgentApiType, AgentConfig, AgentThinkingMode
+from ..config import AgentConfig, AgentThinkingMode
+from ..llm import build_model as build_llm_model
 from .actor_ops import build_actor_ops_capability
 from .facet_identity import build_facet_identity_capability
 from .feed_ops import build_feed_ops_capability
@@ -28,8 +20,6 @@ from .task_ops import build_task_ops_capability
 from .tool_names import ToolNameAlias
 from .tools import AgentDeps, build_explore_toolset
 
-# 单次回复 / 思考预算: 避免撞上提供商默认 max_tokens (过小会 length 截断且无正文).
-_AGENT_MAX_TOKENS = 128_000
 # 工具 / 输出校验重试: 框架默认 1, 此处拉高避免早停.
 _AGENT_RETRIES = 10_000
 # 关闭 request / tool_calls / token 等 UsageLimits (框架默认 request_limit=50).
@@ -37,7 +27,7 @@ UNLIMITED_USAGE = UsageLimits(request_limit=None)
 
 _SYSTEM = """You are Amane's database exploration and library management assistant.
 You help users explore the media metadata SQLite database with read-only SQL, and may
-load write capabilities for carefully scoped domain operations.
+perform carefully scoped domain operations through the write tools.
 
 Rules:
 1. Use sql_explore for intermediate investigation.
@@ -53,26 +43,24 @@ Rules:
      data table and cannot be used as a /meta or /actors filter.
 3. Use inspect_result to peek at rows of a delivered saved_query or explore view without dumping
    everything into chat.
-4. Never attempt INSERT/UPDATE/DELETE/DDL via SQL. Writes only via loaded capabilities:
-   - metadata-ops: metadata fields, user tags, merge, scrape enqueue, delete
-   - actor-ops: actor person fields, alias rows (list/resolve/add/remove), display-name switch,
-     actor scrape enqueue
-   - facet-identity: rename / merge / delete facets and scrape-side rules
-   - library-ops: library CRUD and refresh/scan enqueue
-   - feed-ops: RSS/Atom feed sources and feed item history
-   - schedule-ops: routine schedule CRUD and trigger
-   - task-ops: unified submit / cancel / retry
-   Call load_capability('<id>') before using that domain's tools. Destructive ops need user approval.
-   Feed polling may enqueue SCRAPE tasks but does not run scraping inline.
-   Schedule triggering only makes the schedule due; CronScheduler creates the task on its next tick.
-5. Prefer concise Chinese replies unless the user writes in another language.
+4. Never attempt INSERT/UPDATE/DELETE/DDL via SQL. Writes only via the write tools.
+   Ids always come from sql_explore / sql_deliver results; do not guess one.
+   Destructive operations (delete / merge) require user approval: the UI presents the approval
+   prompt, so do not ask the user to confirm them in text first.
+   A tool that rejects a request returns {"error": ...}: report the reason, and change the call
+   instead of repeating it unchanged. A creation whose follow-up fetch failed still returns the new
+   id, with `poll_error` carrying the failure: report the fetch as failed, not the creation.
+5. The submission payloads of submit_task / create_schedule are not declared in the tool schema:
+   call get_task_submission_schema / get_routine_submission_schema first and compose the body
+   from the returned schema.
+6. Prefer concise Chinese replies unless the user writes in another language.
 
 Database schema:
 """
 
 
 def parse_session_thinking(raw: Any) -> AgentThinkingMode | None:
-    """从会话 meta 解析思考覆盖; 缺省/非法 → None (继承全局默认)."""
+    """缺省/非法 → None (继承全局默认)."""
     if raw is None:
         return None
     if isinstance(raw, AgentThinkingMode):
@@ -102,12 +90,8 @@ def thinking_to_level(mode: AgentThinkingMode) -> ThinkingLevel:
 
 
 def resolve_model_settings(config: AgentConfig, *, session_thinking: AgentThinkingMode | None = None) -> ModelSettings:
-    """组装本回合 ModelSettings (始终带高 max_tokens).
-
-    ``session_thinking`` 为 None 表示继承 ``config.thinking``;
-    有效值仍为 None 时不传 thinking (跟模型默认).
-    """
-    settings: ModelSettings = {"max_tokens": _AGENT_MAX_TOKENS}
+    """始终注入 ``config.max_tokens`` (避免提供商默认过小导致 length 截断). ``session_thinking`` 为 None 表示继承 ``config.thinking``; 有效值仍为 None 时不传 thinking."""
+    settings: ModelSettings = {"max_tokens": config.max_tokens}
     effective = config.thinking if session_thinking is None else session_thinking
     if effective is not None:
         settings["thinking"] = thinking_to_level(effective)
@@ -115,31 +99,22 @@ def resolve_model_settings(config: AgentConfig, *, session_thinking: AgentThinki
 
 
 def build_model(config: AgentConfig) -> Model:
-    """按 ``api_type`` 组装上游模型 (不检查 api_key)."""
-    match config.api_type:
-        case AgentApiType.CHAT:
-            return OpenAIChatModel(
-                config.model, provider=OpenAIProvider(base_url=config.base_url, api_key=config.api_key)
-            )
-        case AgentApiType.RESPONSE:
-            return OpenAIResponsesModel(
-                config.model, provider=OpenAIProvider(base_url=config.base_url, api_key=config.api_key)
-            )
-        case AgentApiType.ANTHROPIC:
-            return AnthropicModel(
-                config.model, provider=AnthropicProvider(api_key=config.api_key, base_url=config.base_url)
-            )
+    """不检查 api_key. 不传 ``http_client``: 传输客户端由 pydantic-ai 构造并托管, 与翻译共用协议映射."""
+    return build_llm_model(config.api_type, base_url=config.base_url, api_key=config.api_key, model=config.model)
 
 
 def build_agent(config: AgentConfig) -> Agent[AgentDeps, str | DeferredToolRequests] | None:
-    """thinking / max_tokens 在每回合经 model_settings 注入."""
+    """thinking / max_tokens 经每回合 model_settings 注入."""
     if not config.api_key:
         return None
     return Agent[AgentDeps, str | DeferredToolRequests](
         build_model(config),
         deps_type=AgentDeps,
         output_type=[str, DeferredToolRequests],
-        system_prompt=_SYSTEM + build_schema_docs(),
+        # 走 instructions 而非 system_prompt: Responses 协议把 agent instructions 放 API 顶层
+        # instructions 字段, 服务端将其插在 input 之前; system_prompt 会变成 input 里的 system
+        # 消息, 落到 capability 指令之后 —— 身份定位出现在各域注意事项之后.
+        instructions=_SYSTEM + build_schema_docs(),
         retries=_AGENT_RETRIES,
         toolsets=[build_explore_toolset()],
         capabilities=[

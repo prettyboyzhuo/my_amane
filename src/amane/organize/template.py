@@ -1,18 +1,23 @@
-"""模板语言: Parser → 树; TemplateContext 按相位组装; Engine.render 填树后 Clean.
-
-PathEngine 折叠空段并约束落点. StrmEngine 不折叠 (保留 `https://`), 不检查 safe_dirs.
-"""
+"""路径模板折叠空段并约束写出路径. 填值时截断 title / actor / actors / actress / actresses. STRM 正文不折叠、不截断 (保留 `https://`), 不检查 safe_dirs."""
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING
+from pathlib import Path, PureWindowsPath
+from typing import TYPE_CHECKING, TypedDict, cast
 
-from ..parsing.file_info import DEFINITION_VALUES, MOSAIC_VALUES, FileInfo
+from ..enums import ActorGender
+from ..parsing.file_info import (
+    CONTENT_TYPE_VALUES,
+    DEFINITION_VALUES,
+    MOSAIC_VALUES,
+    FileInfo,
+    parse_file_info,
+    split_number,
+)
 from ..utils.path import is_any_descendant, is_descendant
 
 if TYPE_CHECKING:
@@ -20,35 +25,49 @@ if TYPE_CHECKING:
 
 _UNKNOWN = "Unknown"
 _DRIVE = re.compile(r"^[A-Za-z]:")
-_DRIVE_ONLY = re.compile(r"^[A-Za-z]:$")
+PATH_FIELD_MAX_BYTES = 200
+PATH_FIELD_ELLIPSIS = "…"
+_CLIP_KEYS = frozenset({"title", "actor", "actors", "actress", "actresses"})
+_ELLIPSIS_BYTES = len(PATH_FIELD_ELLIPSIS.encode("utf-8"))
 
-PLACEHOLDERS: tuple[str, ...] = (
-    "number",
-    "title",
-    "actor",
-    "actors",
-    "studio",
-    "publisher",
-    "series",
-    "year",
-    "release",
-    "ext",
-    "raw_dir",
-    "raw_name",
-    "cd?",
-    "sub?",
-    "mosaic?",
-    "def?",
-    "video_dir",
-    "video_name",
-    "video_relpath",
-    "link_dir",
-    "link_name",
-    "raw_srt_name",
+# cd? / sub? / mosaic? / def? 不是合法标识符, 只能用函数式 TypedDict.
+TemplateVariables = TypedDict(
+    "TemplateVariables",
+    {
+        "number": str,
+        "prefix": str,
+        "suffix": str,
+        "title": str,
+        "actor": str,
+        "actors": str,
+        "actress": str,
+        "actresses": str,
+        "studio": str,
+        "publisher": str,
+        "series": str,
+        "year": str,
+        "release": str,
+        "ext": str,
+        "raw_dir": str,
+        "raw_name": str,
+        "cd?": str,
+        "sub?": str,
+        "content_type": str,
+        "mosaic?": str,
+        "def?": str,
+        "video_dir": str,
+        "video_name": str,
+        "video_relpath": str,
+        "link_dir": str,
+        "link_name": str,
+        "raw_srt_name": str,
+    },
 )
+PLACEHOLDERS: tuple[str, ...] = tuple(TemplateVariables.__annotations__)
 
 # 有闭合取值的占位符: 映射表的 key 必须是规范值, 否则写入 422. 未列入的占位符 (如 cd?) 不校验 key.
 PLACEHOLDER_MAP_KEYS: dict[str, tuple[str, ...]] = {
+    "content_type": CONTENT_TYPE_VALUES,
     "mosaic?": MOSAIC_VALUES,
     "def?": DEFINITION_VALUES,
     "sub?": ("C",),
@@ -76,7 +95,6 @@ type _Node = _Literal | _Placeholder | _Group
 
 
 def _parse_placeholder_mapping(name: str, spec: str) -> tuple[tuple[str, str], ...]:
-    """解析 `{name|k=v,k2=v2}` 的映射段. 空 spec / 缺 `=` / 空 key / 重复 key / 未知枚举 key 均拒绝."""
     if not spec.strip():
         raise ValueError("empty placeholder mapping in path template")
     pairs: list[tuple[str, str]] = []
@@ -87,11 +105,9 @@ def _parse_placeholder_mapping(name: str, spec: str) -> tuple[tuple[str, str], .
             raise ValueError("invalid placeholder mapping in path template")
         key, value = item.split("=", 1)
         key = key.strip()
-        if not key:
-            raise ValueError("empty mapping key in path template")
         if key in seen:
             raise ValueError(f"duplicate mapping key {key!r} in path template")
-        if allowed is not None and key not in allowed:
+        if key and allowed is not None and key not in allowed:
             raise ValueError(f"unknown mapping key {key!r} for {{{name}}}")
         seen.add(key)
         pairs.append((key, value.strip()))
@@ -105,7 +121,7 @@ class Parser:
     (空的那个输出空串). 嵌套组各自判断, 不并入外层.
     `[[...]]` 同样, 有值时把结果包一层 ``[]``.
     名字里的 ``?`` 只是标识符的一部分, 没有运算含义.
-    `{name|原值=输出}` 在查出值之后替换; 空源值不走映射.
+    `{name|原值=输出}` 在查出值之后替换; `{name|=缺省}` 将空源值映成缺省.
     """
 
     def __init__(self, src: str) -> None:
@@ -184,10 +200,8 @@ def _lookup(name: str, variables: dict[str, str]) -> str:
 
 
 def _resolve(node: _Placeholder, variables: dict[str, str]) -> str:
-    """查出占位符值再按映射改写. 空串不走映射, 以便可选组省略未检出项."""
+    """查出值后按映射改写. 空源只在写出 `{name|=缺省}` 时变成非空, 否则仍为空, 可选组省略."""
     raw = _lookup(node.name, variables)
-    if raw == "":
-        return ""
     mapped = dict(node.mapping)
     return mapped.get(raw, raw)
 
@@ -217,8 +231,24 @@ def _nodes_use_placeholder(nodes: Sequence[_Node], name: str) -> bool:
     return False
 
 
+def _clip_field(value: str) -> str:
+    """按 UTF-8 字节截断并追加省略号, 不得切开多字节字符. 省略号计入上限."""
+    data = value.encode("utf-8")
+    if len(data) <= PATH_FIELD_MAX_BYTES:
+        return value
+    budget = PATH_FIELD_MAX_BYTES - _ELLIPSIS_BYTES
+    if budget <= 0:
+        return PATH_FIELD_ELLIPSIS
+    clipped = data[:budget]
+    while clipped:
+        try:
+            return clipped.decode("utf-8") + PATH_FIELD_ELLIPSIS
+        except UnicodeDecodeError:
+            clipped = clipped[:-1]
+    return PATH_FIELD_ELLIPSIS
+
+
 def _safe(value: str | None) -> str | None:
-    """清理字符串以使其可安全用于文件路径."""
     if not value:
         return None
     return (
@@ -241,7 +271,7 @@ def _lexical_abs(path: Path) -> Path:
 
 
 def video_relpath(dest: Path, library_root: Path) -> str:
-    """dest 相对 library_root 的 POSIX 路径. dest 必须落在库根下."""
+    """视频必须在本库内; 返回相对库根目录的 POSIX 路径."""
     dest_abs = _lexical_abs(dest)
     root_abs = _lexical_abs(library_root)
     try:
@@ -258,26 +288,43 @@ def _video_relpath_or_empty(dest: Path, library_root: Path) -> str:
         return ""
 
 
+def actress_names(actors: Sequence[str], genders: Mapping[str, ActorGender] | None = None) -> list[str]:
+    """按 ``Metadata.actors`` 顺序排除明确 ``male``; 未入表或 ``unknown`` 保留."""
+    if not actors:
+        return []
+    if genders is None:
+        return list(actors)
+    return [name for name in actors if genders.get(name, ActorGender.UNKNOWN) is not ActorGender.MALE]
+
+
 def _build_variables(
     metadata: Metadata,
     ext: str = "",
     source_path: Path | None = None,
     file_info: FileInfo | None = None,
     cd: int | None = None,
-) -> dict[str, str]:
+    actor_genders: Mapping[str, ActorGender] | None = None,
+) -> TemplateVariables:
     year = metadata.release[:4] if metadata.release and len(metadata.release) >= 4 else None
     actor = metadata.actors[0] if metadata.actors else None
+    actresses = actress_names(metadata.actors, actor_genders)
+    actress = actresses[0] if actresses else None
     source_dir = source_path.parent if source_path else None
     raw_dir = source_dir.name if source_dir else ""
     raw_name = source_path.stem if source_path else ""
     if cd is None and file_info is not None:
         cd = file_info.cd
+    prefix, suffix = split_number(metadata.number) if metadata.number else ("", "")
 
     return {
         "number": metadata.number,
+        "prefix": prefix,
+        "suffix": suffix,
         "title": _safe(metadata.title) or metadata.number,
         "actor": _safe(actor) or _UNKNOWN,
-        "actors": ", ".join(metadata.actors) if metadata.actors else _UNKNOWN,
+        "actors": ",".join(metadata.actors) if metadata.actors else _UNKNOWN,
+        "actress": _safe(actress) or _UNKNOWN,
+        "actresses": ",".join(actresses) if actresses else _UNKNOWN,
         "studio": _safe(metadata.studio) or _UNKNOWN,
         "publisher": _safe(metadata.publisher) or _UNKNOWN,
         "series": _safe(metadata.series) or _UNKNOWN,
@@ -286,17 +333,27 @@ def _build_variables(
         "ext": ext,
         "raw_dir": raw_dir,
         "raw_name": raw_name,
-        "dir": raw_dir,
         "cd?": str(cd) if cd is not None else "",
         "sub?": "C" if file_info is not None and file_info.has_subtitle else "",
+        "content_type": (
+            str(file_info.content_type)
+            if file_info is not None
+            else (str(parse_file_info(text=metadata.number).content_type) if metadata.number else "")
+        ),
         "mosaic?": file_info.mosaic if file_info is not None and file_info.mosaic else "",
         "def?": file_info.definition if file_info is not None and file_info.definition else "",
+        "video_dir": _UNKNOWN,
+        "video_name": _UNKNOWN,
+        "video_relpath": _UNKNOWN,
+        "link_dir": _UNKNOWN,
+        "link_name": _UNKNOWN,
+        "raw_srt_name": _UNKNOWN,
     }
 
 
 @dataclass
 class TemplateContext:
-    """占位符取值. 相位顺序: metadata/file → apply_video → apply_link → (字幕再改 ext / raw_srt_name)."""
+    """占位符取值. 相位顺序: metadata/file → apply_video → apply_link → (字幕再写入 ext / raw_srt_name)."""
 
     variables: dict[str, str]
     library_root: Path | None = None
@@ -315,8 +372,13 @@ class TemplateContext:
         source_path: Path | None = None,
         file_info: FileInfo | None = None,
         cd: int | None = None,
+        actor_genders: Mapping[str, ActorGender] | None = None,
     ) -> TemplateContext:
-        return cls(variables=_build_variables(metadata, ext, source_path, file_info, cd))
+        built = _build_variables(metadata, ext, source_path, file_info, cd, actor_genders)
+        variables = cast(dict[str, str], {**built})
+        # {dir} 是 {raw_dir} 的别名, 不下发 schema.
+        variables["dir"] = built["raw_dir"]
+        return cls(variables=variables)
 
     def apply_video(self, dest: Path, library_root: Path) -> None:
         self.dest = dest
@@ -354,25 +416,21 @@ def _template_keeps_absolute(template: str, variables: dict[str, str]) -> bool:
 
 
 def _collapse_empty_segments(rendered: str, *, keep_absolute: bool) -> str:
-    """丢掉空路径段, 避免空占位符把相对模板变成绝对路径."""
+    """丢弃空路径段: 空占位符不能把相对模板变成绝对路径.
+
+    锚 (UNC 共享 / 盘符 / 根) 由 ``PureWindowsPath`` 从渲染结果切出并原样保留, 空段折叠只作用于锚之后.
+    逐段重拼会把 UNC 的 ``\\\\`` 压成单个 ``/``, 而该结果在 Windows 上无盘符, 会被当成相对路径重新拼回
+    库根, 触发误报的逃逸.
+    """
     posix = rendered.replace("\\", "/")
-    parts = posix.split("/")
-    drive = ""
-    if parts and _DRIVE_ONLY.match(parts[0] or ""):
-        drive = parts[0]
-        parts = parts[1:]
-    nonempty = [p for p in parts if p]
-    if drive:
-        return f"{drive}/{'/'.join(nonempty)}"
-    joined = "/".join(nonempty)
-    if keep_absolute:
-        return f"/{joined}" if joined else "/"
-    return joined
+    anchor = PureWindowsPath(rendered).anchor if keep_absolute else ""
+    parts = [part for part in posix[len(anchor) :].split("/") if part]
+    if not anchor:
+        return "/".join(parts)
+    return PureWindowsPath(anchor, *parts).as_posix()
 
 
 class TemplateEngine:
-    """解析一次, render 填树后交给 clean."""
-
     def __init__(self, source: str) -> None:
         self.source = source
         self.tree = Parser(source).parse()
@@ -391,7 +449,11 @@ class TemplateEngine:
 
 
 class PathEngine(TemplateEngine):
-    """路径输出: 折叠空段, 再按库根 / safe_dirs 落成字面绝对路径."""
+    """路径输出: 填值时截断 title / actor / actors / actress / actresses, 折叠空段, 再按库根目录 / safe_dirs 写成字面绝对路径."""
+
+    def fill(self, ctx: TemplateContext) -> str:
+        variables = {name: _clip_field(value) if name in _CLIP_KEYS else value for name, value in ctx.variables.items()}
+        return _render_nodes(self.tree, variables)
 
     def clean(self, filled: str, ctx: TemplateContext) -> str:
         return _collapse_empty_segments(filled, keep_absolute=_template_keeps_absolute(self.source, ctx.variables))
@@ -426,7 +488,7 @@ class PathEngine(TemplateEngine):
 
 
 class StrmEngine(TemplateEngine):
-    """STRM 正文: 不折叠空段. 引用 `{video_relpath}` 时 dest 必须在库根下."""
+    """STRM 正文: 不折叠空段, 不截断 title / actor / actors / actress / actresses. 引用 `{video_relpath}` 时视频必须在本库内."""
 
     def clean(self, filled: str, ctx: TemplateContext) -> str:
         return filled if filled.endswith("\n") else f"{filled}\n"

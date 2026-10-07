@@ -3,8 +3,8 @@
 import { type DefaultError, type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { attachUserTag, batchDeleteMetadata, batchFeedItems, batchMetadataUserTags, batchScrapeMetadata, batchTasks, cancelAgentTurn, createAgentSession, createComment, createFeed, createLibrary, createSchedule, createUserTag, cropPosterFromThumb, deleteAgentSession, deleteComment, deleteFacet, deleteFacetRule, deleteFeed, deleteLibrary, deleteMedia, deleteMetadata, deleteSavedQuery, deleteSchedule, desktopInfo, detachUserTag, getActor, getAgentTrace, getConfig, getConfigSchema, getFacet, getFeed, getLibrary, getMedia, getMetadata, getMetadataSchema, getPathTemplateSchema, getPlugin, getRelease, getSavedQuery, getSavedQueryResult, getSchedule, getScheduleSchema, getTask, getTaskChildren, getTaskRecord, getTaskReport, getTaskSchema, getTaskWorker, healthCheck, installPlugin, listActors, listAgentSessions, listAllFeedItems, listFacetRules, listFacets, listFeedItems, listFeeds, listFiles, listLibraries, listMedia, listMetadata, listPlugins, listSavedQueries, listSchedules, listTasks, mergeFacets, mergeMetadata, type Options, pauseTaskWorker, pollFeed, proxyImage, reloadPlugins, renameFacet, restartServer, resumeTaskWorker, scrapeActor, serveResource, streamAgentEvents, streamAgentMessage, streamApproveAgentSql, streamRejectAgentApproval, submitTask, triggerSchedule, uninstallPlugin, updateActor, updateAgentSession, updateComment, updateConfig, updateFeed, updateLibrary, updateMedia, updateMetadata, updatePlugin, updateSavedQuery, updateSchedule } from '../sdk.gen';
-import type { AttachUserTagData, AttachUserTagError, AttachUserTagResponse, BatchDeleteMetadataData, BatchDeleteMetadataError, BatchDeleteMetadataResponse, BatchFeedItemsData, BatchFeedItemsError, BatchFeedItemsResponse, BatchMetadataUserTagsData, BatchMetadataUserTagsError, BatchMetadataUserTagsResponse, BatchScrapeMetadataData, BatchScrapeMetadataError, BatchScrapeMetadataResponse, BatchTasksData, BatchTasksError, BatchTasksResponse, CancelAgentTurnData, CancelAgentTurnError, CancelAgentTurnResponse, CreateAgentSessionData, CreateAgentSessionError, CreateAgentSessionResponse, CreateCommentData, CreateCommentError, CreateCommentResponse, CreateFeedData, CreateFeedError, CreateFeedResponse, CreateLibraryData, CreateLibraryError, CreateLibraryResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateUserTagData, CreateUserTagError, CreateUserTagResponse, CropPosterFromThumbData, CropPosterFromThumbError, CropPosterFromThumbResponse, DeleteAgentSessionData, DeleteAgentSessionError, DeleteAgentSessionResponse, DeleteCommentData, DeleteCommentError, DeleteCommentResponse, DeleteFacetData, DeleteFacetError, DeleteFacetResponse, DeleteFacetRuleData, DeleteFacetRuleError, DeleteFacetRuleResponse, DeleteFeedData, DeleteFeedError, DeleteFeedResponse, DeleteLibraryData, DeleteLibraryError, DeleteLibraryResponse, DeleteMediaData, DeleteMediaError, DeleteMediaResponse, DeleteMetadataData, DeleteMetadataError, DeleteMetadataResponse, DeleteSavedQueryData, DeleteSavedQueryError, DeleteSavedQueryResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DesktopInfoData, DesktopInfoResponse, DetachUserTagData, DetachUserTagError, DetachUserTagResponse, GetActorData, GetActorError, GetActorResponse, GetAgentTraceData, GetAgentTraceError, GetAgentTraceResponse, GetConfigData, GetConfigResponse, GetConfigSchemaData, GetConfigSchemaResponse, GetFacetData, GetFacetError, GetFacetResponse, GetFeedData, GetFeedError, GetFeedResponse, GetLibraryData, GetLibraryError, GetLibraryResponse, GetMediaData, GetMediaError, GetMediaResponse, GetMetadataData, GetMetadataError, GetMetadataResponse, GetMetadataSchemaData, GetMetadataSchemaResponse, GetPathTemplateSchemaData, GetPathTemplateSchemaResponse, GetPluginData, GetPluginError, GetPluginResponse, GetReleaseData, GetReleaseResponse, GetSavedQueryData, GetSavedQueryError, GetSavedQueryResponse, GetSavedQueryResultData, GetSavedQueryResultError, GetSavedQueryResultResponse, GetScheduleData, GetScheduleError, GetScheduleResponse, GetScheduleSchemaData, GetScheduleSchemaResponse, GetTaskChildrenData, GetTaskChildrenError, GetTaskChildrenResponse, GetTaskData, GetTaskError, GetTaskRecordData, GetTaskRecordError, GetTaskReportData, GetTaskReportError, GetTaskReportResponse, GetTaskResponse, GetTaskSchemaData, GetTaskSchemaResponse, GetTaskWorkerData, GetTaskWorkerResponse, HealthCheckData, HealthCheckResponse, InstallPluginData, InstallPluginError, InstallPluginResponse, ListActorsData, ListActorsError, ListActorsResponse, ListAgentSessionsData, ListAgentSessionsResponse, ListAllFeedItemsData, ListAllFeedItemsError, ListAllFeedItemsResponse, ListFacetRulesData, ListFacetRulesError, ListFacetRulesResponse, ListFacetsData, ListFacetsError, ListFacetsResponse, ListFeedItemsData, ListFeedItemsError, ListFeedItemsResponse, ListFeedsData, ListFeedsResponse, ListFilesData, ListFilesError, ListFilesResponse, ListLibrariesData, ListLibrariesResponse, ListMediaData, ListMediaError, ListMediaResponse, ListMetadataData, ListMetadataError, ListMetadataResponse, ListPluginsData, ListPluginsResponse, ListSavedQueriesData, ListSavedQueriesError, ListSavedQueriesResponse, ListSchedulesData, ListSchedulesResponse, ListTasksData, ListTasksError, ListTasksResponse, MergeFacetsData, MergeFacetsError, MergeFacetsResponse, MergeMetadataData, MergeMetadataError, MergeMetadataResponse, PauseTaskWorkerData, PauseTaskWorkerResponse, PollFeedData, PollFeedError, PollFeedResponse, ProxyImageData, ProxyImageError, ReloadPluginsData, ReloadPluginsResponse, RenameFacetData, RenameFacetError, RenameFacetResponse, RestartServerData, ResumeTaskWorkerData, ResumeTaskWorkerResponse, ScrapeActorData, ScrapeActorError, ScrapeActorResponse, ServeResourceData, ServeResourceError, StreamAgentEventsData, StreamAgentEventsError, StreamAgentMessageData, StreamAgentMessageError, StreamApproveAgentSqlData, StreamApproveAgentSqlError, StreamRejectAgentApprovalData, StreamRejectAgentApprovalError, SubmitTaskData, SubmitTaskError, SubmitTaskResponse, TriggerScheduleData, TriggerScheduleError, TriggerScheduleResponse, UninstallPluginData, UninstallPluginError, UninstallPluginResponse, UpdateActorData, UpdateActorError, UpdateActorResponse, UpdateAgentSessionData, UpdateAgentSessionError, UpdateAgentSessionResponse, UpdateCommentData, UpdateCommentError, UpdateCommentResponse, UpdateConfigData, UpdateConfigError, UpdateConfigResponse, UpdateFeedData, UpdateFeedError, UpdateFeedResponse, UpdateLibraryData, UpdateLibraryError, UpdateLibraryResponse, UpdateMediaData, UpdateMediaError, UpdateMediaResponse, UpdateMetadataData, UpdateMetadataError, UpdateMetadataResponse, UpdatePluginData, UpdatePluginError, UpdatePluginResponse, UpdateSavedQueryData, UpdateSavedQueryError, UpdateSavedQueryResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse } from '../types.gen';
+import { batchActorUserTags, batchDeleteMetadata, batchFeedItems, batchMetadataUserTags, batchSavedQueries, batchScrapeMetadata, batchTasks, cancelAguiTurn, checkConnectivity, clearActorPerson, clouddriveNotify, createAgentSession, createComment, createFeed, createLibrary, createSavedQuery, createSchedule, createUserTags, cropActorAvatar, cropPosterFromThumb, deleteAgentSession, deleteComment, deleteFacet, deleteFacetRule, deleteFeed, deleteLibrary, deleteMedia, deleteMetadata, deleteSchedule, desktopInfo, expandCleanupSelection, generateAgentSessionTitle, getActor, getAgentTrace, getCleanupInventory, getCleanupInventoryNodes, getCleanupTrash, getConfig, getConfigSchema, getFacet, getFeed, getLibrary, getMedia, getMetadata, getMetadataSchema, getPathTemplateSchema, getPlugin, getRelease, getSavedQuery, getSavedQueryResult, getSchedule, getScheduleSchema, getTask, getTaskChildren, getTaskRecord, getTaskReport, getTaskSchema, getTaskWorker, healthCheck, installPlugin, listActors, listAgentSessions, listAllFeedItems, listFacetRules, listFacets, listFeedItems, listFeeds, listFiles, listLibraries, listMedia, listMetadata, listPlaybackSources, listPlaybackStreams, listPlugins, listSavedQueries, listSchedules, listTasks, mergeFacets, mergeMetadata, type Options, pauseTaskWorker, playMetadata, playMetadataHlsPart, playMetadataPlaylist, playMetadataSubtitle, playStream, playStreamHlsPart, playStreamPlaylist, playStreamSubtitle, pollFeed, proxyImage, reloadPlugins, renameFacet, restartServer, resumeTaskWorker, scrapeActor, serveResource, setActorLocks, setMetadataLocks, submitTask, triggerSchedule, uninstallPlugin, updateActor, updateAgentSession, updateComment, updateConfig, updateFeed, updateLibrary, updateMedia, updateMetadata, updatePlugin, updateSavedQuery, updateSchedule } from '../sdk.gen';
+import type { BatchActorUserTagsData, BatchActorUserTagsError, BatchActorUserTagsResponse, BatchDeleteMetadataData, BatchDeleteMetadataError, BatchDeleteMetadataResponse, BatchFeedItemsData, BatchFeedItemsError, BatchFeedItemsResponse, BatchMetadataUserTagsData, BatchMetadataUserTagsError, BatchMetadataUserTagsResponse, BatchSavedQueriesData, BatchSavedQueriesError, BatchSavedQueriesResponse, BatchScrapeMetadataData, BatchScrapeMetadataError, BatchScrapeMetadataResponse, BatchTasksData, BatchTasksError, BatchTasksResponse, CancelAguiTurnData, CancelAguiTurnError, CancelAguiTurnResponse, CheckConnectivityData, CheckConnectivityError, CheckConnectivityResponse, ClearActorPersonData, ClearActorPersonError, ClearActorPersonResponse, ClouddriveNotifyData, ClouddriveNotifyError, ClouddriveNotifyResponse, CreateAgentSessionData, CreateAgentSessionError, CreateAgentSessionResponse, CreateCommentData, CreateCommentError, CreateCommentResponse, CreateFeedData, CreateFeedError, CreateFeedResponse, CreateLibraryData, CreateLibraryError, CreateLibraryResponse, CreateSavedQueryData, CreateSavedQueryError, CreateSavedQueryResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateUserTagsData, CreateUserTagsError, CreateUserTagsResponse, CropActorAvatarData, CropActorAvatarError, CropActorAvatarResponse, CropPosterFromThumbData, CropPosterFromThumbError, CropPosterFromThumbResponse, DeleteAgentSessionData, DeleteAgentSessionError, DeleteAgentSessionResponse, DeleteCommentData, DeleteCommentError, DeleteCommentResponse, DeleteFacetData, DeleteFacetError, DeleteFacetResponse, DeleteFacetRuleData, DeleteFacetRuleError, DeleteFacetRuleResponse, DeleteFeedData, DeleteFeedError, DeleteFeedResponse, DeleteLibraryData, DeleteLibraryError, DeleteLibraryResponse, DeleteMediaData, DeleteMediaError, DeleteMediaResponse, DeleteMetadataData, DeleteMetadataError, DeleteMetadataResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DesktopInfoData, DesktopInfoResponse, ExpandCleanupSelectionData, ExpandCleanupSelectionError, ExpandCleanupSelectionResponse, GenerateAgentSessionTitleData, GenerateAgentSessionTitleError, GenerateAgentSessionTitleResponse, GetActorData, GetActorError, GetActorResponse, GetAgentTraceData, GetAgentTraceError, GetAgentTraceResponse, GetCleanupInventoryData, GetCleanupInventoryError, GetCleanupInventoryNodesData, GetCleanupInventoryNodesError, GetCleanupInventoryNodesResponse, GetCleanupInventoryResponse, GetCleanupTrashData, GetCleanupTrashError, GetCleanupTrashResponse, GetConfigData, GetConfigResponse, GetConfigSchemaData, GetConfigSchemaResponse, GetFacetData, GetFacetError, GetFacetResponse, GetFeedData, GetFeedError, GetFeedResponse, GetLibraryData, GetLibraryError, GetLibraryResponse, GetMediaData, GetMediaError, GetMediaResponse, GetMetadataData, GetMetadataError, GetMetadataResponse, GetMetadataSchemaData, GetMetadataSchemaResponse, GetPathTemplateSchemaData, GetPathTemplateSchemaResponse, GetPluginData, GetPluginError, GetPluginResponse, GetReleaseData, GetReleaseResponse, GetSavedQueryData, GetSavedQueryError, GetSavedQueryResponse, GetSavedQueryResultData, GetSavedQueryResultError, GetSavedQueryResultResponse, GetScheduleData, GetScheduleError, GetScheduleResponse, GetScheduleSchemaData, GetScheduleSchemaResponse, GetTaskChildrenData, GetTaskChildrenError, GetTaskChildrenResponse, GetTaskData, GetTaskError, GetTaskRecordData, GetTaskRecordError, GetTaskReportData, GetTaskReportError, GetTaskReportResponse, GetTaskResponse, GetTaskSchemaData, GetTaskSchemaResponse, GetTaskWorkerData, GetTaskWorkerResponse, HealthCheckData, HealthCheckResponse, InstallPluginData, InstallPluginError, InstallPluginResponse, ListActorsData, ListActorsError, ListActorsResponse, ListAgentSessionsData, ListAgentSessionsResponse, ListAllFeedItemsData, ListAllFeedItemsError, ListAllFeedItemsResponse, ListFacetRulesData, ListFacetRulesError, ListFacetRulesResponse, ListFacetsData, ListFacetsError, ListFacetsResponse, ListFeedItemsData, ListFeedItemsError, ListFeedItemsResponse, ListFeedsData, ListFeedsResponse, ListFilesData, ListFilesError, ListFilesResponse, ListLibrariesData, ListLibrariesResponse, ListMediaData, ListMediaError, ListMediaResponse, ListMetadataData, ListMetadataError, ListMetadataResponse, ListPlaybackSourcesData, ListPlaybackSourcesResponse, ListPlaybackStreamsData, ListPlaybackStreamsError, ListPlaybackStreamsResponse, ListPluginsData, ListPluginsResponse, ListSavedQueriesData, ListSavedQueriesError, ListSavedQueriesResponse, ListSchedulesData, ListSchedulesResponse, ListTasksData, ListTasksError, ListTasksResponse, MergeFacetsData, MergeFacetsError, MergeFacetsResponse, MergeMetadataData, MergeMetadataError, MergeMetadataResponse, PauseTaskWorkerData, PauseTaskWorkerResponse, PlayMetadataData, PlayMetadataError, PlayMetadataHlsPartData, PlayMetadataHlsPartError, PlayMetadataPlaylistData, PlayMetadataPlaylistError, PlayMetadataSubtitleData, PlayMetadataSubtitleError, PlayStreamData, PlayStreamError, PlayStreamHlsPartData, PlayStreamHlsPartError, PlayStreamPlaylistData, PlayStreamPlaylistError, PlayStreamSubtitleData, PlayStreamSubtitleError, PollFeedData, PollFeedError, PollFeedResponse, ProxyImageData, ProxyImageError, ReloadPluginsData, ReloadPluginsResponse, RenameFacetData, RenameFacetError, RenameFacetResponse, RestartServerData, ResumeTaskWorkerData, ResumeTaskWorkerResponse, ScrapeActorData, ScrapeActorError, ScrapeActorResponse, ServeResourceData, ServeResourceError, SetActorLocksData, SetActorLocksError, SetActorLocksResponse, SetMetadataLocksData, SetMetadataLocksError, SetMetadataLocksResponse, SubmitTaskData, SubmitTaskError, SubmitTaskResponse, TriggerScheduleData, TriggerScheduleError, TriggerScheduleResponse, UninstallPluginData, UninstallPluginError, UninstallPluginResponse, UpdateActorData, UpdateActorError, UpdateActorResponse, UpdateAgentSessionData, UpdateAgentSessionError, UpdateAgentSessionResponse, UpdateCommentData, UpdateCommentError, UpdateCommentResponse, UpdateConfigData, UpdateConfigError, UpdateConfigResponse, UpdateFeedData, UpdateFeedError, UpdateFeedResponse, UpdateLibraryData, UpdateLibraryError, UpdateLibraryResponse, UpdateMediaData, UpdateMediaError, UpdateMediaResponse, UpdateMetadataData, UpdateMetadataError, UpdateMetadataResponse, UpdatePluginData, UpdatePluginError, UpdatePluginResponse, UpdateSavedQueryData, UpdateSavedQueryError, UpdateSavedQueryResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -43,8 +43,6 @@ export const healthCheckQueryKey = (options?: Options<HealthCheckData>) => creat
 
 /**
  * Health Check
- *
- * 轻量就绪检查, 返回服务状态和版本.
  */
 export const healthCheckOptions = (options?: Options<HealthCheckData>) => queryOptions<HealthCheckResponse, DefaultError, HealthCheckResponse, ReturnType<typeof healthCheckQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -63,8 +61,6 @@ export const getConfigQueryKey = (options?: Options<GetConfigData>) => createQue
 
 /**
  * Get Config
- *
- * 返回按分区分组的当前配置快照
  */
 export const getConfigOptions = (options?: Options<GetConfigData>) => queryOptions<GetConfigResponse, DefaultError, GetConfigResponse, ReturnType<typeof getConfigQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -82,10 +78,7 @@ export const getConfigOptions = (options?: Options<GetConfigData>) => queryOptio
 /**
  * Update Config
  *
- * 应用部分配置更新.
- *
- * 验证补丁, 持久化到 TOML, 重建依赖的运行时对象 (worker, 网络客户端),
- * 并广播 config.updated 事件.
+ * 先用当前会话的插件目录校验新路由和插件配置, 再持久化.
  */
 export const updateConfigMutation = (options?: Partial<Options<UpdateConfigData>>): UseMutationOptions<UpdateConfigResponse, UpdateConfigError, Options<UpdateConfigData>> => {
     const mutationOptions: UseMutationOptions<UpdateConfigResponse, UpdateConfigError, Options<UpdateConfigData>> = {
@@ -119,16 +112,19 @@ export const getConfigSchemaOptions = (options?: Options<GetConfigSchemaData>) =
     queryKey: getConfigSchemaQueryKey(options)
 });
 
-export const listFilesQueryKey = (options: Options<ListFilesData>) => createQueryKey('listFiles', options);
+export const getCleanupInventoryQueryKey = (options: Options<GetCleanupInventoryData>) => createQueryKey('getCleanupInventory', options);
 
 /**
- * List files and directories at a server path
+ * Get Cleanup Inventory
  *
- * 列出目录内容. 仅允许访问启动时确定的安全目录内的路径; ``safe_dirs is None`` 时不限制.
+ * 面板的入口: 有清单给状态与范围, 无清单只给 ``exists=False``; 节点经 ``/inventory/nodes`` 另取.
+ *
+ * 遍历设置与当前库配置不一致的清单按不存在处理: 面板只渲染代表整库的规则来源清单,
+ * 否则一次不递归或带自定义匹配模式的扫描会被当成整库可以清理.
  */
-export const listFilesOptions = (options: Options<ListFilesData>) => queryOptions<ListFilesResponse, ListFilesError, ListFilesResponse, ReturnType<typeof listFilesQueryKey>>({
+export const getCleanupInventoryOptions = (options: Options<GetCleanupInventoryData>) => queryOptions<GetCleanupInventoryResponse, GetCleanupInventoryError, GetCleanupInventoryResponse, ReturnType<typeof getCleanupInventoryQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
-        const { data } = await listFiles({
+        const { data } = await getCleanupInventory({
             ...options,
             ...queryKey[0],
             signal,
@@ -136,19 +132,19 @@ export const listFilesOptions = (options: Options<ListFilesData>) => queryOption
         });
         return data;
     },
-    queryKey: listFilesQueryKey(options)
+    queryKey: getCleanupInventoryQueryKey(options)
 });
 
-export const listMediaQueryKey = (options?: Options<ListMediaData>) => createQueryKey('listMedia', options);
+export const getCleanupInventoryNodesQueryKey = (options: Options<GetCleanupInventoryNodesData>) => createQueryKey('getCleanupInventoryNodes', options);
 
 /**
- * List Media
+ * Get Cleanup Inventory Nodes
  *
- * 列出媒体文件, 支持可选过滤, 服务端分页与排序
+ * 展开某个节点的一页子节点. 库可能有上万条候选, 因此不整份下发.
  */
-export const listMediaOptions = (options?: Options<ListMediaData>) => queryOptions<ListMediaResponse, ListMediaError, ListMediaResponse, ReturnType<typeof listMediaQueryKey>>({
+export const getCleanupInventoryNodesOptions = (options: Options<GetCleanupInventoryNodesData>) => queryOptions<GetCleanupInventoryNodesResponse, GetCleanupInventoryNodesError, GetCleanupInventoryNodesResponse, ReturnType<typeof getCleanupInventoryNodesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
-        const { data } = await listMedia({
+        const { data } = await getCleanupInventoryNodes({
             ...options,
             ...queryKey[0],
             signal,
@@ -156,7 +152,7 @@ export const listMediaOptions = (options?: Options<ListMediaData>) => queryOptio
         });
         return data;
     },
-    queryKey: listMediaQueryKey(options)
+    queryKey: getCleanupInventoryNodesQueryKey(options)
 });
 
 const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(queryKey: QueryKey<Options>, page: K) => {
@@ -188,12 +184,122 @@ const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'hea
     return params as unknown as typeof page;
 };
 
+export const getCleanupInventoryNodesInfiniteQueryKey = (options: Options<GetCleanupInventoryNodesData>): QueryKey<Options<GetCleanupInventoryNodesData>> => createQueryKey('getCleanupInventoryNodes', options, true);
+
+/**
+ * Get Cleanup Inventory Nodes
+ *
+ * 展开某个节点的一页子节点. 库可能有上万条候选, 因此不整份下发.
+ */
+export const getCleanupInventoryNodesInfiniteOptions = (options: Options<GetCleanupInventoryNodesData>) => {
+    const opts = infiniteQueryOptions<GetCleanupInventoryNodesResponse, GetCleanupInventoryNodesError, InfiniteData<GetCleanupInventoryNodesResponse>, QueryKey<Options<GetCleanupInventoryNodesData>>, number | Pick<QueryKey<Options<GetCleanupInventoryNodesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+    // @ts-ignore
+    {
+        queryFn: async ({ pageParam, queryKey, signal }) => {
+            // @ts-ignore
+            const page: Pick<QueryKey<Options<GetCleanupInventoryNodesData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+                query: {
+                    offset: pageParam
+                }
+            };
+            const params = createInfiniteParams(queryKey, page);
+            const { data } = await getCleanupInventoryNodes({
+                ...options,
+                ...params,
+                signal,
+                throwOnError: true
+            });
+            return data;
+        },
+        queryKey: getCleanupInventoryNodesInfiniteQueryKey(options)
+    });
+    return opts as Omit<typeof opts, 'initialData'>;
+};
+
+export const getCleanupTrashQueryKey = (options: Options<GetCleanupTrashData>) => createQueryKey('getCleanupTrash', options);
+
+/**
+ * Get Cleanup Trash
+ *
+ * 展开回收站历史内容: 产出回收站来源的清单, 前端拿到要展开的目录再按页读.
+ *
+ * 展开本身是只读遍历, 但代价随回收站体积增长, 而同一个打开动作可能重复发请求 (渲染两次 / 重连):
+ * 窗口内已有的一份直接复用, 免得重走整棵树并往存放里堆用不到的清单.
+ */
+export const getCleanupTrashOptions = (options: Options<GetCleanupTrashData>) => queryOptions<GetCleanupTrashResponse, GetCleanupTrashError, GetCleanupTrashResponse, ReturnType<typeof getCleanupTrashQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await getCleanupTrash({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: getCleanupTrashQueryKey(options)
+});
+
+/**
+ * Expand Cleanup Selection
+ *
+ * 由选中项展开显式来源清单: 文件表与详情页的删除入口据此预览. 只读, 不改磁盘与索引.
+ */
+export const expandCleanupSelectionMutation = (options?: Partial<Options<ExpandCleanupSelectionData>>): UseMutationOptions<ExpandCleanupSelectionResponse, ExpandCleanupSelectionError, Options<ExpandCleanupSelectionData>> => {
+    const mutationOptions: UseMutationOptions<ExpandCleanupSelectionResponse, ExpandCleanupSelectionError, Options<ExpandCleanupSelectionData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await expandCleanupSelection({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listFilesQueryKey = (options: Options<ListFilesData>) => createQueryKey('listFiles', options);
+
+/**
+ * List files and directories at a server path
+ *
+ * 仅允许安全目录内的路径; ``safe_dirs is None`` 时不限制.
+ */
+export const listFilesOptions = (options: Options<ListFilesData>) => queryOptions<ListFilesResponse, ListFilesError, ListFilesResponse, ReturnType<typeof listFilesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listFiles({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listFilesQueryKey(options)
+});
+
+export const listMediaQueryKey = (options?: Options<ListMediaData>) => createQueryKey('listMedia', options);
+
+/**
+ * List Media
+ */
+export const listMediaOptions = (options?: Options<ListMediaData>) => queryOptions<ListMediaResponse, ListMediaError, ListMediaResponse, ReturnType<typeof listMediaQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listMedia({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listMediaQueryKey(options)
+});
+
 export const listMediaInfiniteQueryKey = (options?: Options<ListMediaData>): QueryKey<Options<ListMediaData>> => createQueryKey('listMedia', options, true);
 
 /**
  * List Media
- *
- * 列出媒体文件, 支持可选过滤, 服务端分页与排序
  */
 export const listMediaInfiniteOptions = (options?: Options<ListMediaData>) => {
     const opts = infiniteQueryOptions<ListMediaResponse, ListMediaError, InfiniteData<ListMediaResponse>, QueryKey<Options<ListMediaData>>, number | Pick<QueryKey<Options<ListMediaData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -222,8 +328,6 @@ export const listMediaInfiniteOptions = (options?: Options<ListMediaData>) => {
 
 /**
  * Delete Media
- *
- * 删除媒体文件记录
  */
 export const deleteMediaMutation = (options?: Partial<Options<DeleteMediaData>>): UseMutationOptions<DeleteMediaResponse, DeleteMediaError, Options<DeleteMediaData>> => {
     const mutationOptions: UseMutationOptions<DeleteMediaResponse, DeleteMediaError, Options<DeleteMediaData>> = {
@@ -243,8 +347,6 @@ export const getMediaQueryKey = (options: Options<GetMediaData>) => createQueryK
 
 /**
  * Get Media
- *
- * 根据 ID 获取单个媒体文件
  */
 export const getMediaOptions = (options: Options<GetMediaData>) => queryOptions<GetMediaResponse, GetMediaError, GetMediaResponse, ReturnType<typeof getMediaQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -261,8 +363,6 @@ export const getMediaOptions = (options: Options<GetMediaData>) => queryOptions<
 
 /**
  * Update Media
- *
- * 更新媒体文件的状态或番号
  */
 export const updateMediaMutation = (options?: Partial<Options<UpdateMediaData>>): UseMutationOptions<UpdateMediaResponse, UpdateMediaError, Options<UpdateMediaData>> => {
     const mutationOptions: UseMutationOptions<UpdateMediaResponse, UpdateMediaError, Options<UpdateMediaData>> = {
@@ -282,8 +382,6 @@ export const getMetadataSchemaQueryKey = (options?: Options<GetMetadataSchemaDat
 
 /**
  * Get Metadata Schema
- *
- * 可编辑 metadata 字段的 JSON Schema, 供前端动态表单渲染.
  */
 export const getMetadataSchemaOptions = (options?: Options<GetMetadataSchemaData>) => queryOptions<GetMetadataSchemaResponse, DefaultError, GetMetadataSchemaResponse, ReturnType<typeof getMetadataSchemaQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -302,8 +400,6 @@ export const listMetadataQueryKey = (options?: Options<ListMetadataData>) => cre
 
 /**
  * List Metadata
- *
- * List metadata with optional search, facet filters, pagination, sorting.
  */
 export const listMetadataOptions = (options?: Options<ListMetadataData>) => queryOptions<ListMetadataResponse, ListMetadataError, ListMetadataResponse, ReturnType<typeof listMetadataQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -322,8 +418,6 @@ export const listMetadataInfiniteQueryKey = (options?: Options<ListMetadataData>
 
 /**
  * List Metadata
- *
- * List metadata with optional search, facet filters, pagination, sorting.
  */
 export const listMetadataInfiniteOptions = (options?: Options<ListMetadataData>) => {
     const opts = infiniteQueryOptions<ListMetadataResponse, ListMetadataError, InfiniteData<ListMetadataResponse>, QueryKey<Options<ListMetadataData>>, number | Pick<QueryKey<Options<ListMetadataData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -353,7 +447,7 @@ export const listMetadataInfiniteOptions = (options?: Options<ListMetadataData>)
 /**
  * Batch Delete Metadata
  *
- * 批量删除元数据, 级联行为与单条删除一致.
+ * 级联行为与单条删除一致.
  */
 export const batchDeleteMetadataMutation = (options?: Partial<Options<BatchDeleteMetadataData>>): UseMutationOptions<BatchDeleteMetadataResponse, BatchDeleteMetadataError, Options<BatchDeleteMetadataData>> => {
     const mutationOptions: UseMutationOptions<BatchDeleteMetadataResponse, BatchDeleteMetadataError, Options<BatchDeleteMetadataData>> = {
@@ -372,7 +466,7 @@ export const batchDeleteMetadataMutation = (options?: Partial<Options<BatchDelet
 /**
  * Batch Scrape Metadata
  *
- * 按 metadata id 列表批量提交刮削任务 (以各自 number 重新刮削).
+ * 以各自 number 重新刮削.
  */
 export const batchScrapeMetadataMutation = (options?: Partial<Options<BatchScrapeMetadataData>>): UseMutationOptions<BatchScrapeMetadataResponse, BatchScrapeMetadataError, Options<BatchScrapeMetadataData>> => {
     const mutationOptions: UseMutationOptions<BatchScrapeMetadataResponse, BatchScrapeMetadataError, Options<BatchScrapeMetadataData>> = {
@@ -391,7 +485,7 @@ export const batchScrapeMetadataMutation = (options?: Partial<Options<BatchScrap
 /**
  * Batch Metadata User Tags
  *
- * 批量挂载/取消挂载用户 tag.
+ * 把一组用户标签应用到一组影片; 未知标签 id 返回 404, 不存在的影片 id 计入 missing.
  */
 export const batchMetadataUserTagsMutation = (options?: Partial<Options<BatchMetadataUserTagsData>>): UseMutationOptions<BatchMetadataUserTagsResponse, BatchMetadataUserTagsError, Options<BatchMetadataUserTagsData>> => {
     const mutationOptions: UseMutationOptions<BatchMetadataUserTagsResponse, BatchMetadataUserTagsError, Options<BatchMetadataUserTagsData>> = {
@@ -409,8 +503,6 @@ export const batchMetadataUserTagsMutation = (options?: Partial<Options<BatchMet
 
 /**
  * Delete Metadata
- *
- * Delete a metadata record.
  */
 export const deleteMetadataMutation = (options?: Partial<Options<DeleteMetadataData>>): UseMutationOptions<DeleteMetadataResponse, DeleteMetadataError, Options<DeleteMetadataData>> => {
     const mutationOptions: UseMutationOptions<DeleteMetadataResponse, DeleteMetadataError, Options<DeleteMetadataData>> = {
@@ -430,8 +522,6 @@ export const getMetadataQueryKey = (options: Options<GetMetadataData>) => create
 
 /**
  * Get Metadata
- *
- * Get metadata detail with related files, user tags, comments, facet ids.
  */
 export const getMetadataOptions = (options: Options<GetMetadataData>) => queryOptions<GetMetadataResponse, GetMetadataError, GetMetadataResponse, ReturnType<typeof getMetadataQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -448,8 +538,6 @@ export const getMetadataOptions = (options: Options<GetMetadataData>) => queryOp
 
 /**
  * Update Metadata
- *
- * Update metadata fields.
  */
 export const updateMetadataMutation = (options?: Partial<Options<UpdateMetadataData>>): UseMutationOptions<UpdateMetadataResponse, UpdateMetadataError, Options<UpdateMetadataData>> => {
     const mutationOptions: UseMutationOptions<UpdateMetadataResponse, UpdateMetadataError, Options<UpdateMetadataData>> = {
@@ -466,29 +554,14 @@ export const updateMetadataMutation = (options?: Partial<Options<UpdateMetadataD
 };
 
 /**
- * Detach User Tag
+ * Set Metadata Locks
+ *
+ * 整体替换锁定字段集合.
  */
-export const detachUserTagMutation = (options?: Partial<Options<DetachUserTagData>>): UseMutationOptions<DetachUserTagResponse, DetachUserTagError, Options<DetachUserTagData>> => {
-    const mutationOptions: UseMutationOptions<DetachUserTagResponse, DetachUserTagError, Options<DetachUserTagData>> = {
+export const setMetadataLocksMutation = (options?: Partial<Options<SetMetadataLocksData>>): UseMutationOptions<SetMetadataLocksResponse, SetMetadataLocksError, Options<SetMetadataLocksData>> => {
+    const mutationOptions: UseMutationOptions<SetMetadataLocksResponse, SetMetadataLocksError, Options<SetMetadataLocksData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await detachUserTag({
-                ...options,
-                ...fnOptions,
-                throwOnError: true
-            });
-            return data;
-        }
-    };
-    return mutationOptions;
-};
-
-/**
- * Attach User Tag
- */
-export const attachUserTagMutation = (options?: Partial<Options<AttachUserTagData>>): UseMutationOptions<AttachUserTagResponse, AttachUserTagError, Options<AttachUserTagData>> => {
-    const mutationOptions: UseMutationOptions<AttachUserTagResponse, AttachUserTagError, Options<AttachUserTagData>> = {
-        mutationFn: async (fnOptions) => {
-            const { data } = await attachUserTag({
+            const { data } = await setMetadataLocks({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -520,8 +593,6 @@ export const cropPosterFromThumbMutation = (options?: Partial<Options<CropPoster
 
 /**
  * Merge Metadata
- *
- * 按字段选择来源, 将对应 raw 数据合并到元数据.
  */
 export const mergeMetadataMutation = (options?: Partial<Options<MergeMetadataData>>): UseMutationOptions<MergeMetadataResponse, MergeMetadataError, Options<MergeMetadataData>> => {
     const mutationOptions: UseMutationOptions<MergeMetadataResponse, MergeMetadataError, Options<MergeMetadataData>> = {
@@ -536,6 +607,215 @@ export const mergeMetadataMutation = (options?: Partial<Options<MergeMetadataDat
     };
     return mutationOptions;
 };
+
+/**
+ * Check Connectivity
+ *
+ * 探测来源连通性.
+ *
+ * 单个来源失败只体现在自己的条目里, 端点始终 200 — 与 ``GET /api/system/release`` 同一取向:
+ * 探测结果本身就是响应体, 用 5xx 表达「上游不通」会让前端无法展示逐来源原因.
+ */
+export const checkConnectivityMutation = (options?: Partial<Options<CheckConnectivityData>>): UseMutationOptions<CheckConnectivityResponse, CheckConnectivityError, Options<CheckConnectivityData>> => {
+    const mutationOptions: UseMutationOptions<CheckConnectivityResponse, CheckConnectivityError, Options<CheckConnectivityData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await checkConnectivity({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listPlaybackSourcesQueryKey = (options?: Options<ListPlaybackSourcesData>) => createQueryKey('listPlaybackSources', options);
+
+/**
+ * List Playback Sources
+ *
+ * 列出可选的播放源; 不调用插件, 因此不发任何上游请求.
+ */
+export const listPlaybackSourcesOptions = (options?: Options<ListPlaybackSourcesData>) => queryOptions<ListPlaybackSourcesResponse, DefaultError, ListPlaybackSourcesResponse, ReturnType<typeof listPlaybackSourcesQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listPlaybackSources({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listPlaybackSourcesQueryKey(options)
+});
+
+export const listPlaybackStreamsQueryKey = (options: Options<ListPlaybackStreamsData>) => createQueryKey('listPlaybackStreams', options);
+
+/**
+ * List Playback Streams
+ *
+ * 探测一个来源在这个条目上的流.
+ *
+ * 由前端在切到该来源时调用, 因此没有人工预算: 慢就慢在用户等待的那一次, 结果按来源与条目缓存
+ * 一小段时间, 来回切换不重复探测. 探测失败也是一行不可用记录, 前端按 ``detail`` 显示原因.
+ */
+export const listPlaybackStreamsOptions = (options: Options<ListPlaybackStreamsData>) => queryOptions<ListPlaybackStreamsResponse, ListPlaybackStreamsError, ListPlaybackStreamsResponse, ReturnType<typeof listPlaybackStreamsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listPlaybackStreams({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listPlaybackStreamsQueryKey(options)
+});
+
+export const playMetadataPlaylistQueryKey = (options: Options<PlayMetadataPlaylistData>) => createQueryKey('playMetadataPlaylist', options);
+
+/**
+ * Play Metadata Playlist
+ */
+export const playMetadataPlaylistOptions = (options: Options<PlayMetadataPlaylistData>) => queryOptions<unknown, PlayMetadataPlaylistError, unknown, ReturnType<typeof playMetadataPlaylistQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playMetadataPlaylist({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playMetadataPlaylistQueryKey(options)
+});
+
+export const playStreamPlaylistQueryKey = (options: Options<PlayStreamPlaylistData>) => createQueryKey('playStreamPlaylist', options);
+
+/**
+ * Play Stream Playlist
+ */
+export const playStreamPlaylistOptions = (options: Options<PlayStreamPlaylistData>) => queryOptions<unknown, PlayStreamPlaylistError, unknown, ReturnType<typeof playStreamPlaylistQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playStreamPlaylist({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playStreamPlaylistQueryKey(options)
+});
+
+export const playMetadataHlsPartQueryKey = (options: Options<PlayMetadataHlsPartData>) => createQueryKey('playMetadataHlsPart', options);
+
+/**
+ * Play Metadata Hls Part
+ */
+export const playMetadataHlsPartOptions = (options: Options<PlayMetadataHlsPartData>) => queryOptions<unknown, PlayMetadataHlsPartError, unknown, ReturnType<typeof playMetadataHlsPartQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playMetadataHlsPart({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playMetadataHlsPartQueryKey(options)
+});
+
+export const playStreamHlsPartQueryKey = (options: Options<PlayStreamHlsPartData>) => createQueryKey('playStreamHlsPart', options);
+
+/**
+ * Play Stream Hls Part
+ */
+export const playStreamHlsPartOptions = (options: Options<PlayStreamHlsPartData>) => queryOptions<unknown, PlayStreamHlsPartError, unknown, ReturnType<typeof playStreamHlsPartQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playStreamHlsPart({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playStreamHlsPartQueryKey(options)
+});
+
+export const playMetadataSubtitleQueryKey = (options: Options<PlayMetadataSubtitleData>) => createQueryKey('playMetadataSubtitle', options);
+
+/**
+ * Play Metadata Subtitle
+ */
+export const playMetadataSubtitleOptions = (options: Options<PlayMetadataSubtitleData>) => queryOptions<unknown, PlayMetadataSubtitleError, unknown, ReturnType<typeof playMetadataSubtitleQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playMetadataSubtitle({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playMetadataSubtitleQueryKey(options)
+});
+
+export const playStreamSubtitleQueryKey = (options: Options<PlayStreamSubtitleData>) => createQueryKey('playStreamSubtitle', options);
+
+/**
+ * Play Stream Subtitle
+ */
+export const playStreamSubtitleOptions = (options: Options<PlayStreamSubtitleData>) => queryOptions<unknown, PlayStreamSubtitleError, unknown, ReturnType<typeof playStreamSubtitleQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playStreamSubtitle({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playStreamSubtitleQueryKey(options)
+});
+
+export const playMetadataQueryKey = (options: Options<PlayMetadataData>) => createQueryKey('playMetadata', options);
+
+/**
+ * Play Metadata
+ */
+export const playMetadataOptions = (options: Options<PlayMetadataData>) => queryOptions<unknown, PlayMetadataError, unknown, ReturnType<typeof playMetadataQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playMetadata({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playMetadataQueryKey(options)
+});
+
+export const playStreamQueryKey = (options: Options<PlayStreamData>) => createQueryKey('playStream', options);
+
+/**
+ * Play Stream
+ */
+export const playStreamOptions = (options: Options<PlayStreamData>) => queryOptions<unknown, PlayStreamError, unknown, ReturnType<typeof playStreamQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await playStream({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: playStreamQueryKey(options)
+});
 
 export const listPluginsQueryKey = (options?: Options<ListPluginsData>) => createQueryKey('listPlugins', options);
 
@@ -645,8 +925,6 @@ export const listActorsQueryKey = (options?: Options<ListActorsData>) => createQ
 
 /**
  * List Actors
- *
- * 分页列出演员 (人物摘要 + 关联影片数).
  */
 export const listActorsOptions = (options?: Options<ListActorsData>) => queryOptions<ListActorsResponse, ListActorsError, ListActorsResponse, ReturnType<typeof listActorsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -665,8 +943,6 @@ export const listActorsInfiniteQueryKey = (options?: Options<ListActorsData>): Q
 
 /**
  * List Actors
- *
- * 分页列出演员 (人物摘要 + 关联影片数).
  */
 export const listActorsInfiniteOptions = (options?: Options<ListActorsData>) => {
     const opts = infiniteQueryOptions<ListActorsResponse, ListActorsError, InfiniteData<ListActorsResponse>, QueryKey<Options<ListActorsData>>, number | Pick<QueryKey<Options<ListActorsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -693,12 +969,29 @@ export const listActorsInfiniteOptions = (options?: Options<ListActorsData>) => 
     return opts as Omit<typeof opts, 'initialData'>;
 };
 
+/**
+ * Batch Actor User Tags
+ *
+ * 把一组用户标签应用到一组演员; 未知标签 id 返回 404, 不存在的演员 id 计入 missing.
+ */
+export const batchActorUserTagsMutation = (options?: Partial<Options<BatchActorUserTagsData>>): UseMutationOptions<BatchActorUserTagsResponse, BatchActorUserTagsError, Options<BatchActorUserTagsData>> => {
+    const mutationOptions: UseMutationOptions<BatchActorUserTagsResponse, BatchActorUserTagsError, Options<BatchActorUserTagsData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await batchActorUserTags({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
 export const getActorQueryKey = (options: Options<GetActorData>) => createQueryKey('getActor', options);
 
 /**
  * Get Actor
- *
- * 演员详情 (含别名与 raw).
  */
 export const getActorOptions = (options: Options<GetActorData>) => queryOptions<GetActorResponse, GetActorError, GetActorResponse, ReturnType<typeof getActorQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -716,7 +1009,7 @@ export const getActorOptions = (options: Options<GetActorData>) => queryOptions<
 /**
  * Update Actor
  *
- * 更新演员规范人物字段 (不含 name/raw/field_sources).
+ * 更新演员规范人物字段 (不含 name/raw/field_sources); 写入字段自动加锁.
  */
 export const updateActorMutation = (options?: Partial<Options<UpdateActorData>>): UseMutationOptions<UpdateActorResponse, UpdateActorError, Options<UpdateActorData>> => {
     const mutationOptions: UseMutationOptions<UpdateActorResponse, UpdateActorError, Options<UpdateActorData>> = {
@@ -733,9 +1026,64 @@ export const updateActorMutation = (options?: Partial<Options<UpdateActorData>>)
 };
 
 /**
- * Scrape Actor
+ * Set Actor Locks
  *
- * 提交演员人物元数据刮削任务.
+ * 整体替换锁定字段集合.
+ */
+export const setActorLocksMutation = (options?: Partial<Options<SetActorLocksData>>): UseMutationOptions<SetActorLocksResponse, SetActorLocksError, Options<SetActorLocksData>> => {
+    const mutationOptions: UseMutationOptions<SetActorLocksResponse, SetActorLocksError, Options<SetActorLocksData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await setActorLocks({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Clear Actor Person
+ *
+ * 清空人物档案并解除全部锁 (保留 name / gender / 刮削缓存).
+ */
+export const clearActorPersonMutation = (options?: Partial<Options<ClearActorPersonData>>): UseMutationOptions<ClearActorPersonResponse, ClearActorPersonError, Options<ClearActorPersonData>> => {
+    const mutationOptions: UseMutationOptions<ClearActorPersonResponse, ClearActorPersonError, Options<ClearActorPersonData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await clearActorPerson({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Crop Actor Avatar
+ *
+ * 从当前主图 (image_urls[0]) 按像素框裁切头像, 结果前插为主图并保留原图.
+ */
+export const cropActorAvatarMutation = (options?: Partial<Options<CropActorAvatarData>>): UseMutationOptions<CropActorAvatarResponse, CropActorAvatarError, Options<CropActorAvatarData>> => {
+    const mutationOptions: UseMutationOptions<CropActorAvatarResponse, CropActorAvatarError, Options<CropActorAvatarData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await cropActorAvatar({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Scrape Actor
  */
 export const scrapeActorMutation = (options?: Partial<Options<ScrapeActorData>>): UseMutationOptions<ScrapeActorResponse, ScrapeActorError, Options<ScrapeActorData>> => {
     const mutationOptions: UseMutationOptions<ScrapeActorResponse, ScrapeActorError, Options<ScrapeActorData>> = {
@@ -752,14 +1100,14 @@ export const scrapeActorMutation = (options?: Partial<Options<ScrapeActorData>>)
 };
 
 /**
- * Create User Tag
+ * Create User Tags
  *
- * 创建用户标签.
+ * 按名称取回或新建用户标签; 已存在的名称直接复用, 响应与入参同序.
  */
-export const createUserTagMutation = (options?: Partial<Options<CreateUserTagData>>): UseMutationOptions<CreateUserTagResponse, CreateUserTagError, Options<CreateUserTagData>> => {
-    const mutationOptions: UseMutationOptions<CreateUserTagResponse, CreateUserTagError, Options<CreateUserTagData>> = {
+export const createUserTagsMutation = (options?: Partial<Options<CreateUserTagsData>>): UseMutationOptions<CreateUserTagsResponse, CreateUserTagsError, Options<CreateUserTagsData>> => {
+    const mutationOptions: UseMutationOptions<CreateUserTagsResponse, CreateUserTagsError, Options<CreateUserTagsData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await createUserTag({
+            const { data } = await createUserTags({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -774,8 +1122,6 @@ export const listFacetsQueryKey = (options: Options<ListFacetsData>) => createQu
 
 /**
  * List Facets
- *
- * 分页列出分类目录条目 (演员/导演/标签/厂商/发行商/系列/用户 tag).
  */
 export const listFacetsOptions = (options: Options<ListFacetsData>) => queryOptions<ListFacetsResponse, ListFacetsError, ListFacetsResponse, ReturnType<typeof listFacetsQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -794,8 +1140,6 @@ export const listFacetsInfiniteQueryKey = (options: Options<ListFacetsData>): Qu
 
 /**
  * List Facets
- *
- * 分页列出分类目录条目 (演员/导演/标签/厂商/发行商/系列/用户 tag).
  */
 export const listFacetsInfiniteOptions = (options: Options<ListFacetsData>) => {
     const opts = infiniteQueryOptions<ListFacetsResponse, ListFacetsError, InfiniteData<ListFacetsResponse>, QueryKey<Options<ListFacetsData>>, number | Pick<QueryKey<Options<ListFacetsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -826,8 +1170,6 @@ export const listFacetRulesQueryKey = (options: Options<ListFacetRulesData>) => 
 
 /**
  * List Facet Rules
- *
- * 列出爬取侧分类的用户规则 (别名 / 黑名单).
  */
 export const listFacetRulesOptions = (options: Options<ListFacetRulesData>) => queryOptions<ListFacetRulesResponse, ListFacetRulesError, ListFacetRulesResponse, ReturnType<typeof listFacetRulesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -901,7 +1243,7 @@ export const getFacetOptions = (options: Options<GetFacetData>) => queryOptions<
 /**
  * Rename Facet
  *
- * 重命名分类实体. 新名称与另一实体冲突时返回 409 (建议改用合并).
+ * 新名称与另一实体冲突时返回 409 (应使用合并).
  */
 export const renameFacetMutation = (options?: Partial<Options<RenameFacetData>>): UseMutationOptions<RenameFacetResponse, RenameFacetError, Options<RenameFacetData>> => {
     const mutationOptions: UseMutationOptions<RenameFacetResponse, RenameFacetError, Options<RenameFacetData>> = {
@@ -1213,15 +1555,8 @@ export const proxyImageQueryKey = (options: Options<ProxyImageData>) => createQu
 /**
  * Proxy Image
  *
- * 代理外链图片以绕过浏览器防盗链 / 严格 CORS.
- *
- * 优先级:
- * 1. ResourceStore 命中 → 直接返回本地文件 (零网络开销)
- * 2. 未命中 → 通过 ResourceStore.acquire 下载并写入 store, 然后返回
- * (后续请求自动走第 1 步)
- *
- * 上游获取失败时记入进程内负缓存 (固定 15 分钟), 窗口内同 URL 直接 502,
- * 避免前端反复请求失效图时每次打满重试/超时. 同 URL 进行中请求合并为一次 acquire.
+ * 上游失败记入进程内负缓存 (15 分钟), 窗口内同 URL 直接 502.
+ * 同 URL 进行中请求合并为一次 acquire.
  */
 export const proxyImageOptions = (options: Options<ProxyImageData>) => queryOptions<unknown, ProxyImageError, unknown, ReturnType<typeof proxyImageQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1240,8 +1575,6 @@ export const serveResourceQueryKey = (options: Options<ServeResourceData>) => cr
 
 /**
  * Serve Resource
- *
- * 按 url hash 返回本地资源文件 (哑文件服务).
  */
 export const serveResourceOptions = (options: Options<ServeResourceData>) => queryOptions<unknown, ServeResourceError, unknown, ReturnType<typeof serveResourceQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1260,8 +1593,6 @@ export const listSchedulesQueryKey = (options?: Options<ListSchedulesData>) => c
 
 /**
  * List Schedules
- *
- * 列出所有定时任务
  */
 export const listSchedulesOptions = (options?: Options<ListSchedulesData>) => queryOptions<ListSchedulesResponse, DefaultError, ListSchedulesResponse, ReturnType<typeof listSchedulesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1278,8 +1609,6 @@ export const listSchedulesOptions = (options?: Options<ListSchedulesData>) => qu
 
 /**
  * Create Schedule
- *
- * 创建定时任务
  */
 export const createScheduleMutation = (options?: Partial<Options<CreateScheduleData>>): UseMutationOptions<CreateScheduleResponse, CreateScheduleError, Options<CreateScheduleData>> => {
     const mutationOptions: UseMutationOptions<CreateScheduleResponse, CreateScheduleError, Options<CreateScheduleData>> = {
@@ -1299,8 +1628,6 @@ export const getScheduleSchemaQueryKey = (options?: Options<GetScheduleSchemaDat
 
 /**
  * Get Schedule Schema
- *
- * 返回定时任务 payload 的 JSON Schema.
  */
 export const getScheduleSchemaOptions = (options?: Options<GetScheduleSchemaData>) => queryOptions<GetScheduleSchemaResponse, DefaultError, GetScheduleSchemaResponse, ReturnType<typeof getScheduleSchemaQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1317,8 +1644,6 @@ export const getScheduleSchemaOptions = (options?: Options<GetScheduleSchemaData
 
 /**
  * Delete Schedule
- *
- * 删除定时任务
  */
 export const deleteScheduleMutation = (options?: Partial<Options<DeleteScheduleData>>): UseMutationOptions<DeleteScheduleResponse, DeleteScheduleError, Options<DeleteScheduleData>> => {
     const mutationOptions: UseMutationOptions<DeleteScheduleResponse, DeleteScheduleError, Options<DeleteScheduleData>> = {
@@ -1355,7 +1680,7 @@ export const getScheduleOptions = (options: Options<GetScheduleData>) => queryOp
 /**
  * Update Schedule
  *
- * 更新定时任务的 name/cron/enabled. 改任务内容请删除后重建.
+ * 仅 name/cron/enabled. 修改任务内容须删除后重建.
  */
 export const updateScheduleMutation = (options?: Partial<Options<UpdateScheduleData>>): UseMutationOptions<UpdateScheduleResponse, UpdateScheduleError, Options<UpdateScheduleData>> => {
     const mutationOptions: UseMutationOptions<UpdateScheduleResponse, UpdateScheduleError, Options<UpdateScheduleData>> = {
@@ -1374,7 +1699,7 @@ export const updateScheduleMutation = (options?: Partial<Options<UpdateScheduleD
 /**
  * Trigger Schedule
  *
- * 手动触发定时任务: 将 next_run 设为当前时间, 由 cron 在下一个 tick 执行.
+ * 将 next_run 设置为当前时间, 由 cron 在下一个 tick 执行.
  */
 export const triggerScheduleMutation = (options?: Partial<Options<TriggerScheduleData>>): UseMutationOptions<TriggerScheduleResponse, TriggerScheduleError, Options<TriggerScheduleData>> => {
     const mutationOptions: UseMutationOptions<TriggerScheduleResponse, TriggerScheduleError, Options<TriggerScheduleData>> = {
@@ -1394,8 +1719,6 @@ export const desktopInfoQueryKey = (options?: Options<DesktopInfoData>) => creat
 
 /**
  * Desktop Info
- *
- * 菜单栏 / 托盘 UI 专用信息 (版本 + 数据目录 + 是否有监督者), bar 进程轮询本端点.
  */
 export const desktopInfoOptions = (options?: Options<DesktopInfoData>) => queryOptions<DesktopInfoResponse, DefaultError, DesktopInfoResponse, ReturnType<typeof desktopInfoQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1454,7 +1777,7 @@ export const listTasksQueryKey = (options?: Options<ListTasksData>) => createQue
 /**
  * List Tasks
  *
- * 列出任务. 默认只返回链根任务 (顶层), 子任务挂在父任务下由 /children 按需加载;
+ * 默认只返回链根 (roots_only). 子任务由 /children 按需加载;
  * 显式 root_task_id 时返回该链全部任务.
  */
 export const listTasksOptions = (options?: Options<ListTasksData>) => queryOptions<ListTasksResponse, ListTasksError, ListTasksResponse, ReturnType<typeof listTasksQueryKey>>({
@@ -1475,7 +1798,7 @@ export const listTasksInfiniteQueryKey = (options?: Options<ListTasksData>): Que
 /**
  * List Tasks
  *
- * 列出任务. 默认只返回链根任务 (顶层), 子任务挂在父任务下由 /children 按需加载;
+ * 默认只返回链根 (roots_only). 子任务由 /children 按需加载;
  * 显式 root_task_id 时返回该链全部任务.
  */
 export const listTasksInfiniteOptions = (options?: Options<ListTasksData>) => {
@@ -1505,8 +1828,6 @@ export const listTasksInfiniteOptions = (options?: Options<ListTasksData>) => {
 
 /**
  * Submit Task
- *
- * 统一任务提交入口
  */
 export const submitTaskMutation = (options?: Partial<Options<SubmitTaskData>>): UseMutationOptions<SubmitTaskResponse, SubmitTaskError, Options<SubmitTaskData>> => {
     const mutationOptions: UseMutationOptions<SubmitTaskResponse, SubmitTaskError, Options<SubmitTaskData>> = {
@@ -1527,9 +1848,7 @@ export const getTaskChildrenQueryKey = (options: Options<GetTaskChildrenData>) =
 /**
  * Get Task Children
  *
- * 任务的直接后继子任务 (TaskLink 出边), 供树视图展开. total 为出边总数, 不受本页截断.
- *
- * 每条带 link_key (父内后继语义键).
+ * 直接后继 (TaskLink 出边). total 为出边总数, 不受本页截断.
  */
 export const getTaskChildrenOptions = (options: Options<GetTaskChildrenData>) => queryOptions<GetTaskChildrenResponse, GetTaskChildrenError, GetTaskChildrenResponse, ReturnType<typeof getTaskChildrenQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1549,9 +1868,7 @@ export const getTaskChildrenInfiniteQueryKey = (options: Options<GetTaskChildren
 /**
  * Get Task Children
  *
- * 任务的直接后继子任务 (TaskLink 出边), 供树视图展开. total 为出边总数, 不受本页截断.
- *
- * 每条带 link_key (父内后继语义键).
+ * 直接后继 (TaskLink 出边). total 为出边总数, 不受本页截断.
  */
 export const getTaskChildrenInfiniteOptions = (options: Options<GetTaskChildrenData>) => {
     const opts = infiniteQueryOptions<GetTaskChildrenResponse, GetTaskChildrenError, InfiniteData<GetTaskChildrenResponse>, QueryKey<Options<GetTaskChildrenData>>, number | Pick<QueryKey<Options<GetTaskChildrenData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -1582,10 +1899,6 @@ export const getTaskSchemaQueryKey = (options?: Options<GetTaskSchemaData>) => c
 
 /**
  * Get Task Schema
- *
- * 返回任务提交表单的 JSON Schema, 适用于动态表单渲染.
- *
- * 包含所有支持任务类型的 schema.
  */
 export const getTaskSchemaOptions = (options?: Options<GetTaskSchemaData>) => queryOptions<GetTaskSchemaResponse, DefaultError, GetTaskSchemaResponse, ReturnType<typeof getTaskSchemaQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1604,8 +1917,6 @@ export const getTaskWorkerQueryKey = (options?: Options<GetTaskWorkerData>) => c
 
 /**
  * Get Task Worker
- *
- * 任务执行器是否暂停领队.
  */
 export const getTaskWorkerOptions = (options?: Options<GetTaskWorkerData>) => queryOptions<GetTaskWorkerResponse, DefaultError, GetTaskWorkerResponse, ReturnType<typeof getTaskWorkerQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1657,7 +1968,7 @@ export const resumeTaskWorkerMutation = (options?: Partial<Options<ResumeTaskWor
 /**
  * Batch Tasks
  *
- * 按 ID 或与列表同形的 status/type 筛选, 批量 cancel / delete / retry.
+ * ``task_ids`` 与 status/type 互斥.
  */
 export const batchTasksMutation = (options?: Partial<Options<BatchTasksData>>): UseMutationOptions<BatchTasksResponse, BatchTasksError, Options<BatchTasksData>> => {
     const mutationOptions: UseMutationOptions<BatchTasksResponse, BatchTasksError, Options<BatchTasksData>> = {
@@ -1677,8 +1988,6 @@ export const getTaskQueryKey = (options: Options<GetTaskData>) => createQueryKey
 
 /**
  * Get Task
- *
- * 根据 ID 获取任务
  */
 export const getTaskOptions = (options: Options<GetTaskData>) => queryOptions<GetTaskResponse, GetTaskError, GetTaskResponse, ReturnType<typeof getTaskQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1698,7 +2007,7 @@ export const getTaskReportQueryKey = (options: Options<GetTaskReportData>) => cr
 /**
  * Get Task Report
  *
- * 任务结果摘要 (面向 UI 的投影, 非完整记录导出). 仅终态可用.
+ * 面向 UI 的投影, 非完整记录导出. 仅终态可用.
  */
 export const getTaskReportOptions = (options: Options<GetTaskReportData>) => queryOptions<GetTaskReportResponse, GetTaskReportError, GetTaskReportResponse, ReturnType<typeof getTaskReportQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1738,7 +2047,7 @@ export const getPathTemplateSchemaQueryKey = (options?: Options<GetPathTemplateS
 /**
  * Get Path Template Schema
  *
- * 路径模板占位符与默认值 (与 resolve_paths 同源, 供前端表单渲染).
+ * 与 resolve_paths 同源.
  */
 export const getPathTemplateSchemaOptions = (options?: Options<GetPathTemplateSchemaData>) => queryOptions<GetPathTemplateSchemaResponse, DefaultError, GetPathTemplateSchemaResponse, ReturnType<typeof getPathTemplateSchemaQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1757,8 +2066,6 @@ export const listLibrariesQueryKey = (options?: Options<ListLibrariesData>) => c
 
 /**
  * List Libraries
- *
- * 列出所有已配置的媒体库
  */
 export const listLibrariesOptions = (options?: Options<ListLibrariesData>) => queryOptions<ListLibrariesResponse, DefaultError, ListLibrariesResponse, ReturnType<typeof listLibrariesQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -1775,8 +2082,6 @@ export const listLibrariesOptions = (options?: Options<ListLibrariesData>) => qu
 
 /**
  * Create Library
- *
- * 添加新的媒体库, 可选触发初始扫描并热添加到监控器
  */
 export const createLibraryMutation = (options?: Partial<Options<CreateLibraryData>>): UseMutationOptions<CreateLibraryResponse, CreateLibraryError, Options<CreateLibraryData>> => {
     const mutationOptions: UseMutationOptions<CreateLibraryResponse, CreateLibraryError, Options<CreateLibraryData>> = {
@@ -1795,10 +2100,7 @@ export const createLibraryMutation = (options?: Partial<Options<CreateLibraryDat
 /**
  * Delete Library
  *
- * 删除媒体库.
- *
- * 级联删除该库下所有 MediaFile 记录 (library_id 非空 FK), 并停止监控该目录.
- * 仅删除数据库索引, 不动磁盘文件.
+ * 级联删除该库 MediaFile (library_id 非空 FK). 仅删除数据库索引, 不动磁盘文件.
  */
 export const deleteLibraryMutation = (options?: Partial<Options<DeleteLibraryData>>): UseMutationOptions<DeleteLibraryResponse, DeleteLibraryError, Options<DeleteLibraryData>> => {
     const mutationOptions: UseMutationOptions<DeleteLibraryResponse, DeleteLibraryError, Options<DeleteLibraryData>> = {
@@ -1834,13 +2136,30 @@ export const getLibraryOptions = (options: Options<GetLibraryData>) => queryOpti
 
 /**
  * Update Library
- *
- * 更新媒体库配置
  */
 export const updateLibraryMutation = (options?: Partial<Options<UpdateLibraryData>>): UseMutationOptions<UpdateLibraryResponse, UpdateLibraryError, Options<UpdateLibraryData>> => {
     const mutationOptions: UseMutationOptions<UpdateLibraryResponse, UpdateLibraryError, Options<UpdateLibraryData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateLibrary({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Clouddrive Notify
+ *
+ * CloudDrive file_system_watcher 回调. 鉴权与其它 /api 相同 (Bearer).
+ */
+export const clouddriveNotifyMutation = (options?: Partial<Options<ClouddriveNotifyData>>): UseMutationOptions<ClouddriveNotifyResponse, ClouddriveNotifyError, Options<ClouddriveNotifyData>> => {
+    const mutationOptions: UseMutationOptions<ClouddriveNotifyResponse, ClouddriveNotifyError, Options<ClouddriveNotifyData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await clouddriveNotify({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -1921,119 +2240,14 @@ export const updateAgentSessionMutation = (options?: Partial<Options<UpdateAgent
 };
 
 /**
- * Stream Agent Message
+ * Generate Agent Session Title
  *
- * 启动后台回合并以 SSE 订阅事件; 客户端断连不取消回合.
+ * 按首条输入生成标题. 与主回合并行执行, 前端不等回合结束即可刷新列表.
  */
-export const streamAgentMessageMutation = (options?: Partial<Options<StreamAgentMessageData>>): UseMutationOptions<unknown, StreamAgentMessageError, Options<StreamAgentMessageData>> => {
-    const mutationOptions: UseMutationOptions<unknown, StreamAgentMessageError, Options<StreamAgentMessageData>> = {
+export const generateAgentSessionTitleMutation = (options?: Partial<Options<GenerateAgentSessionTitleData>>): UseMutationOptions<GenerateAgentSessionTitleResponse, GenerateAgentSessionTitleError, Options<GenerateAgentSessionTitleData>> => {
+    const mutationOptions: UseMutationOptions<GenerateAgentSessionTitleResponse, GenerateAgentSessionTitleError, Options<GenerateAgentSessionTitleData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await streamAgentMessage({
-                ...options,
-                ...fnOptions,
-                throwOnError: true
-            });
-            return data;
-        }
-    };
-    return mutationOptions;
-};
-
-export const streamAgentEventsQueryKey = (options: Options<StreamAgentEventsData>) => createQueryKey('streamAgentEvents', options);
-
-/**
- * Stream Agent Events
- *
- * 续订会话事件流 (刷新/切页后用). after= 上次收到的 seq.
- */
-export const streamAgentEventsOptions = (options: Options<StreamAgentEventsData>) => queryOptions<unknown, StreamAgentEventsError, unknown, ReturnType<typeof streamAgentEventsQueryKey>>({
-    queryFn: async ({ queryKey, signal }) => {
-        const { data } = await streamAgentEvents({
-            ...options,
-            ...queryKey[0],
-            signal,
-            throwOnError: true
-        });
-        return data;
-    },
-    queryKey: streamAgentEventsQueryKey(options)
-});
-
-export const streamAgentEventsInfiniteQueryKey = (options: Options<StreamAgentEventsData>): QueryKey<Options<StreamAgentEventsData>> => createQueryKey('streamAgentEvents', options, true);
-
-/**
- * Stream Agent Events
- *
- * 续订会话事件流 (刷新/切页后用). after= 上次收到的 seq.
- */
-export const streamAgentEventsInfiniteOptions = (options: Options<StreamAgentEventsData>) => {
-    const opts = infiniteQueryOptions<unknown, StreamAgentEventsError, InfiniteData<unknown>, QueryKey<Options<StreamAgentEventsData>>, number | Pick<QueryKey<Options<StreamAgentEventsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
-    // @ts-ignore
-    {
-        queryFn: async ({ pageParam, queryKey, signal }) => {
-            // @ts-ignore
-            const page: Pick<QueryKey<Options<StreamAgentEventsData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
-                query: {
-                    after: pageParam
-                }
-            };
-            const params = createInfiniteParams(queryKey, page);
-            const { data } = await streamAgentEvents({
-                ...options,
-                ...params,
-                signal,
-                throwOnError: true
-            });
-            return data;
-        },
-        queryKey: streamAgentEventsInfiniteQueryKey(options)
-    });
-    return opts as Omit<typeof opts, 'initialData'>;
-};
-
-/**
- * Stream Approve Agent Sql
- */
-export const streamApproveAgentSqlMutation = (options?: Partial<Options<StreamApproveAgentSqlData>>): UseMutationOptions<unknown, StreamApproveAgentSqlError, Options<StreamApproveAgentSqlData>> => {
-    const mutationOptions: UseMutationOptions<unknown, StreamApproveAgentSqlError, Options<StreamApproveAgentSqlData>> = {
-        mutationFn: async (fnOptions) => {
-            const { data } = await streamApproveAgentSql({
-                ...options,
-                ...fnOptions,
-                throwOnError: true
-            });
-            return data;
-        }
-    };
-    return mutationOptions;
-};
-
-/**
- * Stream Reject Agent Approval
- */
-export const streamRejectAgentApprovalMutation = (options?: Partial<Options<StreamRejectAgentApprovalData>>): UseMutationOptions<unknown, StreamRejectAgentApprovalError, Options<StreamRejectAgentApprovalData>> => {
-    const mutationOptions: UseMutationOptions<unknown, StreamRejectAgentApprovalError, Options<StreamRejectAgentApprovalData>> = {
-        mutationFn: async (fnOptions) => {
-            const { data } = await streamRejectAgentApproval({
-                ...options,
-                ...fnOptions,
-                throwOnError: true
-            });
-            return data;
-        }
-    };
-    return mutationOptions;
-};
-
-/**
- * Cancel Agent Turn
- *
- * 显式终止后台回合; 与 SSE 断连无关.
- */
-export const cancelAgentTurnMutation = (options?: Partial<Options<CancelAgentTurnData>>): UseMutationOptions<CancelAgentTurnResponse, CancelAgentTurnError, Options<CancelAgentTurnData>> => {
-    const mutationOptions: UseMutationOptions<CancelAgentTurnResponse, CancelAgentTurnError, Options<CancelAgentTurnData>> = {
-        mutationFn: async (fnOptions) => {
-            const { data } = await cancelAgentTurn({
+            const { data } = await generateAgentSessionTitle({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -2062,6 +2276,25 @@ export const getAgentTraceOptions = (options: Options<GetAgentTraceData>) => que
     queryKey: getAgentTraceQueryKey(options)
 });
 
+/**
+ * Cancel Agui Turn
+ *
+ * 显式终止后台回合: 客户端 abort 只是断开订阅, 回合会继续运行.
+ */
+export const cancelAguiTurnMutation = (options?: Partial<Options<CancelAguiTurnData>>): UseMutationOptions<CancelAguiTurnResponse, CancelAguiTurnError, Options<CancelAguiTurnData>> => {
+    const mutationOptions: UseMutationOptions<CancelAguiTurnResponse, CancelAguiTurnError, Options<CancelAguiTurnData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await cancelAguiTurn({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
 export const listSavedQueriesQueryKey = (options?: Options<ListSavedQueriesData>) => createQueryKey('listSavedQueries', options);
 
 /**
@@ -2081,12 +2314,14 @@ export const listSavedQueriesOptions = (options?: Options<ListSavedQueriesData>)
 });
 
 /**
- * Delete Saved Query
+ * Create Saved Query
+ *
+ * 手动创建: 无会话归属, 直接已保留.
  */
-export const deleteSavedQueryMutation = (options?: Partial<Options<DeleteSavedQueryData>>): UseMutationOptions<DeleteSavedQueryResponse, DeleteSavedQueryError, Options<DeleteSavedQueryData>> => {
-    const mutationOptions: UseMutationOptions<DeleteSavedQueryResponse, DeleteSavedQueryError, Options<DeleteSavedQueryData>> = {
+export const createSavedQueryMutation = (options?: Partial<Options<CreateSavedQueryData>>): UseMutationOptions<CreateSavedQueryResponse, CreateSavedQueryError, Options<CreateSavedQueryData>> => {
+    const mutationOptions: UseMutationOptions<CreateSavedQueryResponse, CreateSavedQueryError, Options<CreateSavedQueryData>> = {
         mutationFn: async (fnOptions) => {
-            const { data } = await deleteSavedQuery({
+            const { data } = await createSavedQuery({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
@@ -2117,11 +2352,32 @@ export const getSavedQueryOptions = (options: Options<GetSavedQueryData>) => que
 
 /**
  * Update Saved Query
+ *
+ * SQL 变化才重校验并失效缓存.
  */
 export const updateSavedQueryMutation = (options?: Partial<Options<UpdateSavedQueryData>>): UseMutationOptions<UpdateSavedQueryResponse, UpdateSavedQueryError, Options<UpdateSavedQueryData>> => {
     const mutationOptions: UseMutationOptions<UpdateSavedQueryResponse, UpdateSavedQueryError, Options<UpdateSavedQueryData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await updateSavedQuery({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Batch Saved Queries
+ *
+ * 不存在的 id 计入 missing; 重复 id 只处理一次. AgentService 未装配时 delete 跳过缓存失效.
+ */
+export const batchSavedQueriesMutation = (options?: Partial<Options<BatchSavedQueriesData>>): UseMutationOptions<BatchSavedQueriesResponse, BatchSavedQueriesError, Options<BatchSavedQueriesData>> => {
+    const mutationOptions: UseMutationOptions<BatchSavedQueriesResponse, BatchSavedQueriesError, Options<BatchSavedQueriesData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await batchSavedQueries({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

@@ -1,13 +1,4 @@
-"""
-异步任务 worker -- 消费任务队列的后台循环.
-
-作为 asyncio 任务在 FastAPI 事件循环内运行.
-轮询 DB 中的排队任务, 执行 handler, 并更新状态.
-
-可观测性:
-    每个任务执行在独立的 contextvars 上下文中.
-    Recorder 统一安装 task.log FileHandler 与结构化产物.
-"""
+"""每个任务在独立 contextvars 中执行; Recorder 安装 task.log FileHandler 与结构化产物."""
 
 import asyncio
 import time
@@ -32,22 +23,17 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# stop() 时等待活跃任务优雅退出的最长时间 (默认值, 可通过配置覆盖)
+CANCEL_ERROR = "Cancelled by user"
+
 _DEFAULT_SHUTDOWN_TIMEOUT = 0
+# 关闭时等待主循环 (含在飞 claim) 退出的兜底阈值; 正常路径只等它自己退出.
+MAIN_LOOP_STOP_TIMEOUT = 5.0
 
 
 class AsyncWorker:
-    """
-    后台任务消费者.
+    """任务执行循环, 以 ``is_main`` 标志控制是否认领.
 
-    持续轮询任务队列并分发给已注册的 handler.
-    通过 asyncio.Semaphore 控制并发.
-
-    用法:
-        worker = AsyncWorker(repo, handlers, concurrency=3)
-        asyncio.create_task(worker.start())
-        ...
-        await worker.stop()
+    ``retire()`` 后主循环退出, 已认领任务继续运行; 调用方负责在活跃任务清零后释放该 worker 占用的资源.
     """
 
     def __init__(
@@ -68,29 +54,30 @@ class AsyncWorker:
         self._poll_interval = poll_interval
         self._shutdown_timeout = shutdown_timeout
         self._semaphore = asyncio.Semaphore(concurrency)
-        self._running = False
-        # 主循环 task: stop() 须取消并等待它退出, 否则「在飞 claim」会在 stop() 返回后
-        # 继续认领 stop 之后新入队的任务 (API 测试 stop_worker 竞态即源于此).
+        self._is_main = True
+        # retire() 唤醒轮询中的主循环; 主循环自行退出, 不取消.
+        self._stop_signal = asyncio.Event()
         self._main_task: asyncio.Task[None] | None = None
-        self._active_tasks: set[asyncio.Task] = set()
-        # task_id -> asyncio.Task 映射, 用于按 ID 取消正在执行的任务
-        self._running_tasks: dict[int, asyncio.Task] = {}
-        # 完成信号 channel: 每个任务完成时 put task_id, 供外部精确同步
-        self._done_queue: asyncio.Queue[int] = asyncio.Queue()
+        self._active_tasks: dict[int, asyncio.Task[None]] = {}
+        self._done_queue: asyncio.Queue[int] = asyncio.Queue()  # 完成时 put task_id, 供外部精确同步
         self._event_bus = event_bus
         self._log_dir = log_dir
         self._get_hot = get_hot
-        # 未 finalize 的 Recorder (shutdown 兜底 close)
-        self._active_recorders: dict[int, Recorder] = {}
+        self._active_recorders: dict[int, Recorder] = {}  # 未 finalize 的 Recorder, shutdown 时关闭
+        self._cleanup_tasks: set[asyncio.Task[bool]] = set()  # 取消兜底写入, 保持引用
         self._paused = False
 
     @property
-    def is_running(self) -> bool:
-        return self._running
+    def is_main(self) -> bool:
+        return self._is_main
+
+    @property
+    def active_count(self) -> int:
+        return len(self._active_tasks)
 
     @property
     def is_paused(self) -> bool:
-        """暂停时循环仍在, 只是不再 claim 新任务; 已认领的继续跑."""
+        """暂停时循环仍在, 不再 claim 新任务; 已认领的继续执行."""
         return self._paused
 
     def set_paused(self, paused: bool) -> None:
@@ -99,81 +86,125 @@ class AsyncWorker:
         self._paused = paused
         logger.info("worker paused" if paused else "worker resumed")
 
+    def retire(self) -> None:
+        """停止认领; 主循环在当前迭代结束后退出. 不可逆, 重复调用无操作."""
+        if not self._is_main:
+            return
+        self._is_main = False
+        self._stop_signal.set()
+
     def start(self) -> None:
-        """启动 worker 后台循环. 内部创建 Task, 立即返回."""
+        self._stop_signal.clear()
         self._main_task = asyncio.create_task(self._run_loop())
 
-    async def stop(self) -> None:
-        """停止 worker, 等待所有任务完成后返回."""
-        self._running = False
-        # 先终止主循环: 在飞 claim 若不取消, 可能恰在 stop() 返回后完成并认领
-        # 之后新入队的任务, 导致「stop 后任务仍被 worker 拾取」.
-        if self._main_task is not None and not self._main_task.done():
+    def cancel_main_loop(self) -> None:
+        """关闭路径等待超时后调用; 取消主循环, 在飞 claim 事务可能无法完整结束."""
+        if self._main_task is not None:
             self._main_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._main_task
-            self._main_task = None
-        # 关闭时: 等待活跃任务完成, 超时则强制取消
-        await self._shutdown_active_tasks()
-        failed = await self._repo.fail_all_running_tasks()
+
+    async def wait_stopped(self) -> None:
+        """等主循环退出 (含在飞 claim 结算).
+
+        ``asyncio.wait`` 不因主循环被取消而向调用者抛出; 主循环异常在此记录并继续.
+        """
+        main = self._main_task
+        if main is None:
+            return
+        await asyncio.wait({main})
+        if main.cancelled():
+            logger.warning("worker main loop cancelled")
+        elif main.exception() is not None:
+            logger.error("worker main loop crashed", exc_info=main.exception())
+
+    async def drain(self) -> None:
+        """等主循环退出后再等活跃任务自然结束; 不取消、不清扫. 必须先 ``retire``."""
+        await self.wait_stopped()
+        if self._active_tasks:
+            await asyncio.gather(*list(self._active_tasks.values()), return_exceptions=True)
+        self._close_recorders()
+
+    async def shutdown_active(self) -> None:
+        """关闭专用: 限时等待活跃任务, 超时取消; 不取消主循环, 不清扫数据库."""
+        active = list(self._active_tasks.values())
+        if active:
+            try:
+                await asyncio.wait_for(asyncio.gather(*active, return_exceptions=True), timeout=self._shutdown_timeout)
+            except TimeoutError:
+                logger.warning(
+                    "shutdown timeout, cancelling active tasks",
+                    timeout=self._shutdown_timeout,
+                    active_count=len(active),
+                )
+                for task in active:
+                    task.cancel()
+                await asyncio.gather(*active, return_exceptions=True)
+        self._close_recorders()
+
+    def _close_recorders(self) -> None:
         for rec in list(self._active_recorders.values()):
             rec.close()
         self._active_recorders.clear()
-        logger.info("worker stopped", marked_failed=failed)
+
+    def _on_task_done(self, task_id: int, task: asyncio.Task[None]) -> None:
+        """移除登记; 已登记但未首次调度即被取消的任务由兜底写入补终态."""
+        self._active_tasks.pop(task_id, None)
+        if task.cancelled():
+            cleanup = asyncio.create_task(self._repo.fail_running_task(task_id, error=CANCEL_ERROR))
+            self._cleanup_tasks.add(cleanup)
+            cleanup.add_done_callback(self._cleanup_tasks.discard)
 
     async def _run_loop(self) -> None:
-        """worker 主循环. 持续轮询任务队列直到 stop() 被调用."""
-        self._running = True
         logger.info("worker started", concurrency=self._concurrency, poll_interval=self._poll_interval)
 
-        while self._running:
-            # 尝试认领任务 (仅在未暂停且有空闲容量时)
+        while self._is_main:
+            # 未暂停且有空闲容量时认领
             if not self._paused and self._semaphore._value > 0:
                 task = await self._repo.claim_next_task()
                 if task is not None:
-                    t = asyncio.create_task(self._execute(task))
-                    self._active_tasks.add(t)
-                    t.add_done_callback(self._active_tasks.discard)
-                    continue  # 立即检查更多任务
+                    task_id = task.id
+                    assert task_id is not None
+                    claimed = asyncio.create_task(self._execute(task))
+                    self._active_tasks[task_id] = claimed
+                    claimed.add_done_callback(lambda done, tid=task_id: self._on_task_done(tid, done))
+                    continue  # 立即检查更多任务, 不等待 poll_interval
 
-            await asyncio.sleep(self._poll_interval)
+            # 可被 retire() 立刻唤醒, 不必等满 poll_interval.
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop_signal.wait(), self._poll_interval)
+
+        logger.info("worker stopped")
 
     async def cancel_task(self, task_id: int) -> bool:
-        """取消正在执行的任务. 返回 True 表示已发送取消信号."""
-        asyncio_task = self._running_tasks.get(task_id)
+        asyncio_task = self._active_tasks.get(task_id)
         if asyncio_task is None:
             return False
         asyncio_task.cancel()
         logger.info("task cancellation requested", task_id=task_id)
         return True
 
-    async def _shutdown_active_tasks(self) -> None:
-        """等待活跃任务完成, 超时后 cancel."""
-        if not self._active_tasks:
-            return
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*self._active_tasks, return_exceptions=True), timeout=self._shutdown_timeout
-            )
-        except TimeoutError:
-            logger.warning(
-                "shutdown timeout, cancelling active tasks",
-                timeout=self._shutdown_timeout,
-                active_count=len(self._active_tasks),
-            )
-            for t in self._active_tasks:
-                t.cancel()
-            await asyncio.gather(*self._active_tasks, return_exceptions=True)
-
     async def _execute(self, task: Task) -> None:
-        """使用 Semaphore 控制并发来执行单个任务"""
         assert task.id is not None
         task_id = task.id
         task_type_str = str(task.type)
 
-        # ─── 绑定上下文: structlog contextvars ───
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(task_id=task_id, task_type=task_type_str)
+
+        try:
+            await self._execute_claimed(task)
+        except asyncio.CancelledError:
+            # 取消落在信号量等待 / recorder 初始化 / 完成事务等无终态窗口: 条件补写后传播.
+            current = asyncio.current_task()
+            if current is not None:
+                current.uncancel()
+            with suppress(Exception):
+                await asyncio.shield(self._repo.fail_running_task(task_id, error=CANCEL_ERROR))
+            raise
+
+    async def _execute_claimed(self, task: Task) -> None:
+        assert task.id is not None
+        task_id = task.id
+        task_type_str = str(task.type)
 
         async with self._semaphore:
             handler = self._handlers.get(task.type)
@@ -190,12 +221,6 @@ class AsyncWorker:
                 self._done_queue.put_nowait(task_id)
                 return
 
-            # 注册到 running_tasks 以便外部按 ID 取消
-            current = asyncio.current_task()
-            assert current is not None
-            self._running_tasks[task_id] = current
-
-            # Inject progress callback
             async def _report_progress(current_val: int, total: int, message: str = "") -> None:
                 if self._event_bus:
                     await self._event_bus.emit(
@@ -217,7 +242,6 @@ class AsyncWorker:
                     logger.exception("task recorder begin failed", task_id=task_id)
                     rec = None
 
-            # Emit task.started
             if self._event_bus:
                 await self._event_bus.emit(EventType.TASK_STARTED, {"task_id": task_id, "type": task_type_str})
 
@@ -250,12 +274,12 @@ class AsyncWorker:
                 except asyncio.CancelledError:
                     duration_s = round(time.monotonic() - start_time, 2)
                     logger.info("task cancelled", duration_s=duration_s)
-                    await self._repo.fail_task(task_id, error="Cancelled by user")
-                    await _finalize_recorder(success=False, error="Cancelled by user")
+                    await self._repo.fail_running_task(task_id, error=CANCEL_ERROR)
+                    await _finalize_recorder(success=False, error=CANCEL_ERROR)
                     if self._event_bus:
                         await self._event_bus.emit(
                             EventType.TASK_FAILED,
-                            {"task_id": task_id, "type": task_type_str, "error": "Cancelled by user"},
+                            {"task_id": task_id, "type": task_type_str, "error": CANCEL_ERROR},
                         )
                     self._done_queue.put_nowait(task_id)
                     return
@@ -266,7 +290,8 @@ class AsyncWorker:
                     await _finalize_recorder(success=False, error=str(e))
                     if self._event_bus:
                         await self._event_bus.emit(
-                            EventType.TASK_FAILED, {"task_id": task_id, "type": task_type_str, "error": str(e)}
+                            EventType.TASK_FAILED,
+                            {"task_id": task_id, "type": task_type_str, "error": str(e)},
                         )
                     self._done_queue.put_nowait(task_id)
                     return
@@ -282,7 +307,8 @@ class AsyncWorker:
                         await _finalize_recorder(success=False, error=str(e))
                         if self._event_bus:
                             await self._event_bus.emit(
-                                EventType.TASK_FAILED, {"task_id": task_id, "type": task_type_str, "error": str(e)}
+                                EventType.TASK_FAILED,
+                                {"task_id": task_id, "type": task_type_str, "error": str(e)},
                             )
                         self._done_queue.put_nowait(task_id)
                         return
@@ -290,7 +316,8 @@ class AsyncWorker:
                     await _finalize_recorder(success=True, error=None)
                     if self._event_bus:
                         await self._event_bus.emit(
-                            EventType.TASK_COMPLETED, {"task_id": task_id, "type": task_type_str}
+                            EventType.TASK_COMPLETED,
+                            {"task_id": task_id, "type": task_type_str},
                         )
                 else:
                     duration_s = round(time.monotonic() - start_time, 2)
@@ -300,12 +327,12 @@ class AsyncWorker:
                     await _finalize_recorder(success=False, error=err)
                     if self._event_bus:
                         await self._event_bus.emit(
-                            EventType.TASK_FAILED, {"task_id": task_id, "type": task_type_str, "error": err}
+                            EventType.TASK_FAILED,
+                            {"task_id": task_id, "type": task_type_str, "error": err},
                         )
 
                 self._done_queue.put_nowait(task_id)
             finally:
-                self._running_tasks.pop(task_id, None)
                 if rec is not None:
                     self._active_recorders.pop(task_id, None)
                     rec.close()

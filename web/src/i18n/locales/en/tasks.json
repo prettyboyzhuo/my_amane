@@ -1,18 +1,7 @@
 {
   "title": "Tasks",
-  "columns": {
-    "type": "Type",
-    "status": "Status",
-    "priority": "Priority",
-    "created": "Created",
-    "error": "Error",
-    "actions": "Actions"
-  },
   "actions": {
-    "newScan": "New Scan",
-    "scanning": "Scanning...",
     "cancelTask": "Cancel Task",
-    "log": "Log",
     "record": "Task record",
     "submit": "Submit Task"
   },
@@ -24,13 +13,15 @@
   },
   "empty": "No tasks",
   "total": "{{count}} total",
+  "total_one": "{{count}} total",
+  "total_other": "{{count}} total",
   "childrenCount": "{{count}} subtasks",
   "loadMoreChildren": "Load more ({{count}})",
   "tree": {
     "loading": "Loading subtasks…",
     "loadError": "Could not load subtasks",
     "retry": "Retry",
-    "linkKey": "Followup key"
+    "linkKey": "Subtask"
   },
   "filters": {
     "all": "All",
@@ -45,10 +36,10 @@
     "refresh": "Refresh",
     "r18_import": "R18 Import",
     "actor_scrape": "Actor Scrape",
-    "rescrape": "Rescrape"
+    "rescrape": "Rescrape",
+    "scan_invalid": "Scan unwanted",
+    "delete": "Delete"
   },
-  "total_one": "tasks:total",
-  "total_other": "tasks:total",
   "detail": {
     "status": "Status",
     "priority": "Priority",
@@ -57,58 +48,52 @@
     "duration": "Duration",
     "retries": "Retries",
     "id": "ID",
-    "root": "Root",
-    "linkKey": "Followup key",
+    "root": "Root task",
+    "linkKey": "Subtask",
     "payload": "Payload",
-    "error": "Error",
     "result": "Result",
     "liveLogs": "Live Logs",
     "progress": "Progress"
   },
   "report": {
-    "title": "Summary",
     "headline": "Failure",
     "metadata": "Metadata",
     "viewMetadata": "Open #{{id}}",
     "actor": "Actor",
     "viewActor": "Open #{{id}}",
-    "sites": "Sites",
     "loading": "Loading summary…",
-    "unavailable": "No summary available.",
-    "successEmpty": "Task completed.",
+    "unavailable": "No summary available",
+    "successEmpty": "Task completed",
     "group": {
       "failed": "Failed",
       "ok": "Succeeded",
       "cache_hit": "Cached"
-    },
-    "outcome": {
-      "ok": "OK",
-      "failed": "Failed",
-      "cache_hit": "Cache"
     },
     "detail": {
       "unknown": "Unknown reason"
     },
     "reason": {
       "http_error": "Request rejected by the site",
+      "api_error": "Upstream API error",
       "not_found": "Content not found on the site",
       "rate_limited": "Rate limited",
       "server_error": "Site server error",
       "timeout": "Request timed out",
       "network": "Network error",
-      "cloudflare_challenge": "Blocked by Cloudflare challenge",
+      "cloudflare_challenge": "Cloudflare challenge",
       "cloudflare_blocked": "Blocked by Cloudflare",
       "ip_banned": "IP banned",
       "geo_restricted": "Not available in your region",
       "age_verification": "Age verification required",
       "empty_response": "Empty response",
       "no_usable_metadata": "No usable metadata",
-      "crawler_unavailable": "Crawler unavailable",
+      "parse_error": "Failed to parse the site response",
+      "crawler_unavailable": "Source unavailable",
       "unexpected": "Unexpected error"
     }
   },
   "logView": {
-    "empty": "No live logs for this task in the current buffer."
+    "empty": "No logs"
   },
   "toolbar": {
     "cancel": "Cancel",
@@ -165,7 +150,9 @@
       "refresh": "Refresh",
       "r18_import": "R18 Import",
       "actor_scrape": "Actor Scrape",
-      "rescrape": "Rescrape"
+      "rescrape": "Rescrape",
+      "scan_invalid": "Scan unwanted",
+      "delete": "Delete"
     },
     "cleanup": {
       "remove_missing_files": {
@@ -178,27 +165,23 @@
     "organize": {
       "library_id": {
         "label": "Library",
-        "description": "Library to organize; scanning/organization happens within this library."
-      },
-      "recursive": {
-        "label": "Recursive",
-        "description": "Override library recursive setting; None keeps the library default."
-      },
-      "patterns": {
-        "label": "Patterns",
-        "description": "Override library patterns; None keeps the library default."
+        "description": ""
       },
       "path": {
         "label": "Path",
-        "description": "Directory to scan (overrides library path, must be a subdirectory of the library)."
+        "description": "Organize only a subdirectory of the library"
+      },
+      "media_file_ids": {
+        "label": "File IDs",
+        "description": "Selected snapshot; cannot be combined with path"
       },
       "write_nfo": {
         "label": "Write NFO",
-        "description": "Override the library NFO setting; None keeps the library default."
+        "description": "Overrides library setting"
       },
       "copy_resources": {
         "label": "Copy on organize",
-        "description": "Override which sidecars are copied onto library paths; None keeps the library default.",
+        "description": "Overrides library setting",
         "options": {
           "thumb": "Cover",
           "poster": "Poster",
@@ -213,6 +196,10 @@
             "trailer": "Trailer"
           }
         }
+      },
+      "prune_empty_dirs": {
+        "label": "Prune emptied directories",
+        "description": "Removes directories emptied by this run; no effect on copy / hardlink / symlink"
       }
     },
     "scrape": {
@@ -221,11 +208,11 @@
       },
       "media_id": {
         "label": "Media ID",
-        "description": "MediaFile ID. Usually only for internal task submission; not needed when submitting by hand."
+        "description": "Not needed for manual scrape"
       },
       "content_type": {
         "label": "Content Type",
-        "description": "Media content category — determines crawler routing.",
+        "description": "Leave empty to detect automatically",
         "options": {
           "censored": "Censored",
           "uncensored": "Uncensored",
@@ -238,7 +225,7 @@
       },
       "use_cache": {
         "label": "Use Cache",
-        "description": "Checked caches are reused; unchecked means force-refresh that kind.",
+        "description": "Checked uses that cache; otherwise refetch",
         "$": {
           "options": {
             "metadata": "Metadata Cache",
@@ -250,33 +237,33 @@
     "upscale": {
       "max_dim_threshold": {
         "label": "Max Dimension Threshold",
-        "description": "Only upscale images whose longest side is below this value."
+        "description": "Only upscale images whose longest side is below this value"
       },
       "max_bytes_threshold": {
         "label": "Max File Size Threshold (bytes)",
-        "description": "Files larger than this skip upscaling (treated as sharp enough)."
+        "description": "Files larger than this skip upscaling (treated as sharp enough)"
       },
       "limit": {
         "label": "Limit",
-        "description": "Maximum number of images to upscale."
+        "description": "Maximum number of images to upscale"
       }
     },
     "refresh": {
       "library_id": {
         "label": "Library",
-        "description": "Library to refresh; scanning/organization happens within this library."
+        "description": ""
       },
       "recursive": {
         "label": "Recursive",
-        "description": "Override library recursive setting; None keeps the library default."
+        "description": "Overrides library setting"
       },
       "patterns": {
         "label": "Patterns",
-        "description": "Override library patterns; None keeps the library default."
+        "description": "Overrides library setting"
       },
       "path": {
         "label": "Path",
-        "description": "Directory to scan (overrides library path, must be a subdirectory of the library)."
+        "description": "Scan only a subdirectory of the library"
       },
       "scan": {
         "label": "Scan Mode",
@@ -311,17 +298,17 @@
     "r18_import": {
       "force": {
         "label": "Force Reimport",
-        "description": "Ignore the stored dump ETag and re-download/import unconditionally."
+        "description": "Ignore the stored dump ETag and force re-download and import"
       }
     },
     "actor_scrape": {
       "actor_id": {
         "label": "Actor ID",
-        "description": "Primary key of the Actor entity."
+        "description": "Primary key of the Actor entity"
       },
       "use_cache": {
         "label": "Use cache",
-        "description": "Checked kinds are reused; unchecked kinds are force-refreshed.",
+        "description": "Checked uses that cache; otherwise refetch",
         "$": {
           "options": {
             "metadata": "Metadata cache",
@@ -333,12 +320,58 @@
     "number": "",
     "rescrape": {
       "limit": {
-        "label": "Batch size",
-        "description": "Max metadata entries per run (least recently updated first; keeps the worker queue short)."
+        "label": "Limit",
+        "description": ""
       },
       "min_age_days": {
         "label": "Min age (days)",
-        "description": "Only rescrape entries last updated more than this many days ago; leave empty for no threshold."
+        "description": "Only process entries not updated within this interval"
+      },
+      "targets": {
+        "label": "Scope",
+        "description": "Counted separately per type",
+        "$": {
+          "options": {
+            "metadata": "Movies",
+            "actor": "Actors"
+          }
+        }
+      }
+    },
+    "scan_invalid": {
+      "library_id": {
+        "label": "Library",
+        "description": ""
+      },
+      "path": {
+        "label": "Path",
+        "description": "Scan only a subdirectory of the library"
+      },
+      "recursive": {
+        "label": "Recursive",
+        "description": "Overrides library setting"
+      },
+      "patterns": {
+        "label": "Patterns",
+        "description": "Overrides library setting"
+      }
+    },
+    "delete": {
+      "library_id": {
+        "label": "Library",
+        "description": ""
+      },
+      "inventory_id": {
+        "label": "Inventory ID",
+        "description": "Produced by the panel; a manual value matches no inventory"
+      },
+      "exclude": {
+        "label": "Excluded",
+        "description": "Paths under the inventory's library root, matched by path component (subtree included); or absolute paths outside the library"
+      },
+      "prune_empty_dirs": {
+        "label": "Prune emptied directories",
+        "description": "Library root and .amane_trash excluded"
       }
     }
   },

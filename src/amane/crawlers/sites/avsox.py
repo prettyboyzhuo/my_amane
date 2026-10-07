@@ -1,4 +1,4 @@
-"""AVSOX (avsox.click) 爬虫 — Vue SPA, 元数据走 Yii JSON API."""
+"""Vue SPA, 壳页无影片 DOM. 元数据经 Yii JSON API: 先 GET 取 csrf-token, POST search / getMovie, body 为 JSON 数组."""
 
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ from parsel import Selector
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ...enums import Language, SiteName
+from ...net.errors import FailureReason, SourceError, parse_detail
 from ..base import Crawler, CrawlerProfile
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
+from ..parsing import fold_number
 
 _LANG: dict[Language, str] = {
     Language.ZH_CN: "cn",
@@ -51,8 +53,6 @@ def _named(entity: AvsoxNamed | None, prefix: str) -> str | None:
 
 
 class AvsoxNamed(BaseModel):
-    """演员 / 片商 / 类型等带语言后缀的名字对象."""
-
     model_config = ConfigDict(extra="allow")
 
 
@@ -142,15 +142,15 @@ class AvsoxCrawler(Crawler):
             return None
         try:
             movie = AvsoxMovie.model_validate(data)
-        except ValidationError:
-            return None
+        except ValidationError as e:
+            raise SourceError(FailureReason.PARSE_ERROR, detail=parse_detail(e)) from e
         if not movie.movieFanHao:
             return None
         director = _named(movie.director, "director")
         return MediaMetadata(
             number=movie.movieFanHao,
             title=_first(movie.title, movie.title_ja, movie.title_en, movie.title_cn, movie.title_tw),
-            actors=[name for star in movie.star if (name := _named(star, "star"))],
+            actors=film_actors(name for star in movie.star if (name := _named(star, "star"))),
             studio=_named(movie.studio, "studio"),
             publisher=_named(movie.label, "label"),
             series=_named(movie.series, "series"),
@@ -173,14 +173,9 @@ class AvsoxCrawler(Crawler):
         )
 
 
-def _fold_number(number: str) -> str:
-    """大小写 + 短横线 / 空格. 不折叠下划线: 010115_001 与 010115-001 是两部片."""
-    return number.casefold().replace("-", "").replace(" ", "")
-
-
 def _pick_movie_id(movies: list[object], number: str) -> str | None:
     exact = number.casefold()
-    folded = _fold_number(number)
+    folded = fold_number(number)
     folded_hit: str | None = None
     for item in movies:
         if not isinstance(item, dict):
@@ -189,9 +184,11 @@ def _pick_movie_id(movies: list[object], number: str) -> str | None:
         movie_id = item.get("movieId")
         if not isinstance(fanhao, str) or not isinstance(movie_id, str) or not movie_id:
             continue
+        # 精确匹配番号.
         if fanhao.casefold() == exact:
             return movie_id
-        if folded_hit is None and _fold_number(fanhao) == folded:
+        # 折叠分隔符后的回退命中.
+        if folded_hit is None and fold_number(fanhao) == folded:
             folded_hit = movie_id
     return folded_hit
 

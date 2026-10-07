@@ -1,14 +1,4 @@
-"""
-日志配置 -- 基于 structlog 的统一日志管线.
-
-设计:
-- structlog 作为处理器后端, 兼容 stdlib logging (所有现有 getLogger 调用无需更改)
-- 通过 contextvars 自动注入 task_id, request_id 等上下文
-- 两种渲染目标: stderr (人类可读 + 颜色) / 文件 (结构化 JSON)
-- WSEventLogHandler 将日志转发为 WebSocket 事件
-
-在进程启动时调用 setup_logging() 进行初始化 (见 app/bootstrap.py).
-"""
+"""structlog 兼容 stdlib logging; contextvars 注入 task_id / request_id. 进程启动时调用 setup_logging()."""
 
 import asyncio
 import logging
@@ -29,22 +19,9 @@ if TYPE_CHECKING:
 MB = 1024 * 1024
 
 
-# ─── WebSocket 日志转发 ─────────────────────────────────────────────────────────
-
-
 class WSEventLogHandler(logging.Handler):
-    """
-    将 Python 日志记录转发为 WebSocket LOG 事件.
+    """转发为 WebSocket LOG 事件, 含 contextvars 与 structlog extra."""
 
-    从结构化日志中提取:
-        level   - 日志级别
-        source  - logger 名称短形式
-        message - 事件消息
-        + 所有 contextvars 绑定的字段 (task_id, request_id 等)
-        + 所有 structlog extra 字段 (duration_s, fields, 等)
-    """
-
-    # 跳过的 LogRecord 标准属性 (不转发到前端)
     _SKIP_ATTRS = frozenset(
         {
             "name",
@@ -69,7 +46,6 @@ class WSEventLogHandler(logging.Handler):
             "process",
             "message",
             "taskName",
-            # structlog 内部
             "color_message",
         }
     )
@@ -82,10 +58,8 @@ class WSEventLogHandler(logging.Handler):
         try:
             source = record.name.rsplit(".", 1)[-1] if "." in record.name else record.name
 
-            # structlog 通过 wrap_for_formatter 将 event_dict 存入 record.msg
-            # stdlib 日志的 record.msg 则是普通字符串
+            # structlog 经 wrap_for_formatter 把 event_dict 写入 record.msg; stdlib 则为普通字符串
             if isinstance(record.msg, dict):
-                # structlog-originated: 从 event_dict 提取字段
                 event_dict: dict = record.msg
                 message = str(event_dict.get("event", ""))
                 data: dict = {
@@ -93,8 +67,7 @@ class WSEventLogHandler(logging.Handler):
                     "source": source,
                     "message": message,
                 }
-                # 转发所有其他字段 (排除 structlog 内部 key)
-                # 注意: "timestamp" 不在此集合中 - 需要转发原始日志时间戳
+                # "timestamp" 不在此集合中, 必须转发原始日志时间戳
                 _INTERNAL_KEYS = {"event", "level", "logger", "_record", "_from_decorator"}
                 for key, value in event_dict.items():
                     if key in _INTERNAL_KEYS:
@@ -102,14 +75,12 @@ class WSEventLogHandler(logging.Handler):
                     if isinstance(value, (str, int, float, bool, list, dict, type(None))):
                         data[key] = value
             else:
-                # stdlib-originated: 普通 LogRecord
                 message = record.getMessage()
                 data = {
                     "level": record.levelname,
                     "source": source,
                     "message": message,
                 }
-                # 提取 extra 字段
                 for key, value in record.__dict__.items():
                     if key.startswith("_") or key in self._SKIP_ATTRS:
                         continue
@@ -120,38 +91,19 @@ class WSEventLogHandler(logging.Handler):
                 loop = asyncio.get_running_loop()
                 loop.call_soon_threadsafe(asyncio.ensure_future, self._event_bus.emit(EventType.LOG, data))
             except RuntimeError:
-                pass  # 没有运行中的事件循环, 跳过
+                pass  # 无运行中的事件循环则跳过
         except Exception:
             # handler 自身不能抛出异常
             pass
 
 
-# ─── 核心配置 ──────────────────────────────────────────────────────────────────
-
-
 def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_dir: Path | None = None) -> None:
-    """
-     配置 structlog + stdlib 的统一日志管线.
-
-     调用后效果:
-    - 所有 logging.getLogger("amane.*") 的输出经过 structlog 处理器链
-    - contextvars (task_id, request_id 等) 自动附加到每条日志
-    - stderr: 人类可读彩色输出 (ConsoleRenderer)
-    - 文件: 结构化 JSON (JSONRenderer)
-    - WebSocket: 结构化事件转发
-
-     Args:
-         level: 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-         event_bus: 可选, 用于转发日志到 WebSocket 客户端
-         log_dir: 可选, 日志文件输出目录
-    """
-    # 幂等: 检查是否已配置
+    """幂等. 已有 handler 时直接返回."""
     root = logging.getLogger("amane")
     if root.handlers:
         return
 
-    # ── 1. 共享处理器链 (structlog pipeline) ──
-    # 这些处理器在最终渲染之前运行, 负责提取上下文/添加元数据.
+    # 共享处理器链 (渲染前注入上下文)
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
@@ -161,9 +113,6 @@ def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_di
         structlog.processors.ExceptionRenderer(),
     ]
 
-    # ── 2. 配置 structlog ──
-    # wrapper_class=BoundLogger 使直接使用 structlog.get_logger() 时获得标准接口
-    # logger_factory=LoggerFactory() 使 structlog 最终委托给 stdlib logging
     structlog.configure(
         processors=[
             *shared_processors,
@@ -174,14 +123,11 @@ def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_di
         cache_logger_on_first_use=True,
     )
 
-    # ── 3. stdlib Handler 配置 (用 ProcessorFormatter 桥接) ──
-    # foreign_pre_chain: 处理来自 stdlib logging (非 structlog) 的记录
-    # 这确保了 getLogger().info() 也能获得 contextvars 注入的字段
+    # foreign_pre_chain: 非 structlog 的 stdlib 记录也注入 contextvars
     foreign_pre_chain = shared_processors
 
     root.setLevel(level.upper())
 
-    # 3a. Console handler (stderr) - 人类可读彩色输出
     console_formatter = structlog.stdlib.ProcessorFormatter(
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
@@ -193,7 +139,6 @@ def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_di
     stderr_handler.setFormatter(console_formatter)
     root.addHandler(stderr_handler)
 
-    # 3b. 文件 handler - 结构化 JSON (用于分析/告警)
     if log_dir:
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -213,7 +158,7 @@ def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_di
         file_handler.setFormatter(json_formatter)
         root.addHandler(file_handler)
 
-        # Request log: 独立文件, 独立 formatter
+        # request 独立文件, 不向 root 传播
         request_logger = logging.getLogger("amane.request")
         request_logger.propagate = False
         req_console_formatter = structlog.stdlib.ProcessorFormatter(
@@ -244,7 +189,7 @@ def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_di
         req_stderr_handler.setFormatter(req_console_formatter)
         request_logger.addHandler(req_stderr_handler)
     else:
-        # 无 log_dir 时, request logger 仍输出到 stderr
+        # 无 log_dir 时 request 仍输出到 stderr
         request_logger = logging.getLogger("amane.request")
         request_logger.propagate = False
         req_console_formatter = structlog.stdlib.ProcessorFormatter(
@@ -258,13 +203,11 @@ def setup_logging(level: str = "INFO", event_bus: EventBus | None = None, log_di
         req_stderr_handler.setFormatter(req_console_formatter)
         request_logger.addHandler(req_stderr_handler)
 
-    # 3c. WebSocket 日志转发
     if event_bus:
         ws_handler = WSEventLogHandler(event_bus)
         ws_handler.setLevel(logging.DEBUG)
         root.addHandler(ws_handler)
 
-    # ── 4. 第三方库降噪 ──
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("watchdog").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)

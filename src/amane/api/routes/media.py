@@ -43,7 +43,6 @@ async def list_media(
     sort_by: Annotated[MediaSortField, Query(description="Sort field")] = MediaSortField.UPDATED_AT,
     order: Annotated[SortOrder, Query(description="Sort order")] = SortOrder.DESC,
 ) -> MediaListResponse:
-    """列出媒体文件, 支持可选过滤, 服务端分页与排序"""
     definition = _require_known_definition(definition)
     status_filter = [status] if status is not None else None
     items = await repo.list_media_files(
@@ -75,7 +74,6 @@ async def list_media(
 
 @router.get("/{media_id}")
 async def get_media(media_id: int, repo: RepoDep) -> MediaFileResponse:
-    """根据 ID 获取单个媒体文件"""
     media = await repo.get_media_file(media_id)
     if media is None:
         raise HTTPException(status_code=404, detail="Media file not found")
@@ -84,7 +82,6 @@ async def get_media(media_id: int, repo: RepoDep) -> MediaFileResponse:
 
 @router.patch("/{media_id}")
 async def update_media(media_id: int, req: MediaFileUpdateRequest, repo: RepoDep) -> MediaFileResponse:
-    """更新媒体文件的状态或番号"""
     updates = cast("MediaFileUpdates", req.model_dump(exclude_unset=True))
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
@@ -97,7 +94,6 @@ async def update_media(media_id: int, req: MediaFileUpdateRequest, repo: RepoDep
 
 @router.delete("/{media_id}", status_code=204)
 async def delete_media(media_id: int, repo: RepoDep):
-    """删除媒体文件记录"""
     deleted = await repo.delete_media_file(media_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Media file not found")

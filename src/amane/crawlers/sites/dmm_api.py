@@ -1,12 +1,4 @@
-"""
-DMM/Fanza TV GraphQL API 响应的 Pydantic 模型.
-
-这些模型解析来自以下端点的结构化 JSON 响应:
-- https://api.tv.dmm.co.jp/graphql (Fanza TV)
-- https://api.tv.dmm.com/graphql (DMM TV)
-
-仅包含实际用于元数据提取的字段.
-"""
+"""DMM / Fanza TV GraphQL 响应模型. 只声明实际用到的字段."""
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +28,6 @@ FANZA_TV_QUERY = """query FetchFanzaTvPlusContent($id: ID!, $device: Device!, $i
 
 
 def fanza_tv_payload(cid: str) -> dict:
-    """构建 Fanza TV 内容查询的 GraphQL 请求负载."""
     return {
         "operationName": "FetchFanzaTvPlusContent",
         "variables": {
@@ -74,7 +65,8 @@ class FanzaTvContent(BaseModel):
     packageImage: str = ""
     packageLargeImage: str = ""
     startDeliveryAt: str = ""
-    sampleMovie: _SampleMovie = Field(default_factory=_SampleMovie)
+    # GraphQL 在无预览片时返回 null
+    sampleMovie: _SampleMovie | None = None
     samplePictures: list[_SamplePicture] = Field(default_factory=list)
     actresses: list[_NameItem] = Field(default_factory=list)
     directors: list[_NameItem] = Field(default_factory=list)
@@ -83,15 +75,18 @@ class FanzaTvContent(BaseModel):
     label: _NameItem | None = None
     genres: list[_NameItem] = Field(default_factory=list)
     reviewSummary: _ReviewSummary | None = None
-    playInfo: _PlayInfo = Field(default_factory=_PlayInfo)
+    # GraphQL 在无播放信息时返回 null
+    playInfo: _PlayInfo | None = None
 
 
 class _FanzaTvPlus(BaseModel):
-    content: FanzaTvContent = Field(default_factory=FanzaTvContent)
+    # GraphQL 在内容不存在时返回 null
+    content: FanzaTvContent | None = None
 
 
 class _FanzaData(BaseModel):
-    fanzaTvPlus: _FanzaTvPlus = Field(default_factory=_FanzaTvPlus)
+    # GraphQL 在内容不存在时返回 null
+    fanzaTvPlus: _FanzaTvPlus | None = None
 
 
 class FanzaTvResponse(BaseModel):
@@ -122,7 +117,6 @@ DMM_TV_QUERY = """query FetchVideo($seasonId: ID!, $device: Device!) {
 
 
 def dmm_tv_payload(season_id: str) -> dict:
-    """构建 DMM TV 视频查询的 GraphQL 请求负载."""
     return {
         "operationName": "FetchVideo",
         "variables": {
@@ -157,7 +151,8 @@ class DmmTvVideo(BaseModel):
 
 
 class _DmmTvData(BaseModel):
-    video: DmmTvVideo = Field(default_factory=DmmTvVideo)
+    # GraphQL 在内容不存在时返回 null
+    video: DmmTvVideo | None = None
 
 
 class DmmTvResponse(BaseModel):
@@ -189,7 +184,6 @@ DIGITAL_QUERY = """query FetchDigitalContent($id: ID!) {
 
 
 def digital_payload(cid: str) -> dict:
-    """构建 Digital 内容查询的 GraphQL 请求负载."""
     return {
         "operationName": "FetchDigitalContent",
         "variables": {"id": cid},
@@ -226,13 +220,16 @@ class DigitalContent(BaseModel):
     maker: _NameItem | None = None
     label: _NameItem | None = None
     genres: list[_NameItem] = Field(default_factory=list)
-    packageImage: _DigitalPackageImage = Field(default_factory=_DigitalPackageImage)
+    # GraphQL 在无封面图时返回 null
+    packageImage: _DigitalPackageImage | None = None
     sampleImages: list[_DigitalSampleImage] = Field(default_factory=list)
-    sample2DMovie: _DigitalSampleMovie = Field(default_factory=_DigitalSampleMovie)
+    # GraphQL 在无预览片时返回 null
+    sample2DMovie: _DigitalSampleMovie | None = None
 
 
 class _DigitalData(BaseModel):
-    ppvContent: DigitalContent = Field(default_factory=DigitalContent)
+    # GraphQL 在内容不存在时返回 null
+    ppvContent: DigitalContent | None = None
     # GraphQL 在无评分时返回 null
     reviewSummary: _DigitalReviewSummary | None = None
 

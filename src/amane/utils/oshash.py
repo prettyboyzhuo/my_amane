@@ -1,9 +1,4 @@
-"""影片文件指纹 (oshash) 计算.
-
-oshash 是 Stash 系站点 (ThePornDB 等) 的 open-subtitles 风格指纹:
-文件大小 + 首尾各 64 KiB 按小端 int64 累加, 输出 16 位小写 hex.
-本模块包一层, 收敛大小/IO 边界, 调用方无需关心异常.
-"""
+"""文件大小 + 首尾各 64 KiB 按小端 int64 累加, 输出 16 位小写 hex."""
 
 from __future__ import annotations
 
@@ -46,7 +41,7 @@ def compute_oshash(path: Path) -> str | None:
     try:
         with open(path, "rb") as f:
             file_hash = file_size
-            # 文件头: 完整读满 64 KiB (getsize ≥ 128 KiB, 头块必然读满)
+            # getsize ≥ 128 KiB, 头块必然读满
             head = f.read(CHUNK_SIZE)
             if len(head) < CHUNK_SIZE:
                 return None

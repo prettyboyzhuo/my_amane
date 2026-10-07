@@ -4,26 +4,19 @@ import { IconList } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, stripSearchParams } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { z } from "zod";
 import { listFeedsOptions } from "@/client/@tanstack/react-query.gen";
-import type { FeedItemState } from "@/client/types.gen";
+import type { FeedItemReadState, FeedItemState } from "@/client/types.gen";
+import { ListDefaultActions } from "@/components/common/list-default-actions";
 import { FeedReader } from "@/components/feeds/feed-reader";
 import { FeedSidebar } from "@/components/feeds/feed-sidebar";
 import { APP_SHELL_MAIN_HEIGHT } from "@/components/layout/app-shell-metrics";
+import { feedsSearchSchema } from "@/lib/feeds/browse";
 import { UNGROUPED_GROUP } from "@/lib/feeds/groups";
-
-const feedsSearchSchema = z.object({
-  feed: z.coerce.number().int().positive().optional(),
-  group: z.string().optional(),
-  q: z.string().optional(),
-  state: z.enum(["active", "ignored", "all"]).catch("active").default("active"),
-  page: z.coerce.number().int().min(1).catch(1).default(1),
-  nodedupe: z.union([z.literal("1"), z.literal("true"), z.literal(true)]).optional(),
-});
+import { feedListDefaults } from "@/lib/nav-defaults";
 
 export const Route = createFileRoute("/feeds/")({
   validateSearch: feedsSearchSchema,
-  search: { middlewares: [stripSearchParams({ page: 1, state: "active" })] },
+  search: { middlewares: [stripSearchParams({ page: 1, state: "active", read: "unread" })] },
   component: FeedsPage,
 });
 
@@ -41,6 +34,7 @@ function FeedsPage() {
       group: string | undefined;
       q: string | undefined;
       state: FeedItemState;
+      read: FeedItemReadState;
       page: number;
       nodedupe: true | undefined;
     }>,
@@ -70,12 +64,15 @@ function FeedsPage() {
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
+        // 高度钉在 Main 内容区; 窄屏 chrome 折行超出时改为页面内滚动, 避免内容溢出到内容区之外.
+        overflowY: "auto",
+        overflowX: "hidden",
       }}
     >
       <Group justify="space-between" wrap="wrap" mb="sm">
         <Group gap="sm">
           <Button
-            hiddenFrom="sm"
+            hiddenFrom="md"
             variant="default"
             size="sm"
             leftSection={<IconList size={16} />}
@@ -85,6 +82,7 @@ function FeedsPage() {
           </Button>
           <Title order={2}>{t("title")}</Title>
         </Group>
+        <ListDefaultActions update={{ key: "feeds", value: feedListDefaults(search) }} />
       </Group>
 
       {!isLoading && feeds.length === 0 ? (
@@ -98,20 +96,23 @@ function FeedsPage() {
         </Box>
       ) : (
         <Group align="stretch" gap={0} wrap="nowrap" style={{ flex: 1, minHeight: 0 }}>
-          <Box visibleFrom="sm" w={260} style={{ minHeight: 0, flexShrink: 0 }}>
+          {/* md 而非 sm: 768px 时导航栏同时展开, 260px 侧栏会把阅读列压到 460px. */}
+          <Box visibleFrom="md" w={260} style={{ minHeight: 0, flexShrink: 0 }}>
             {sidebar}
           </Box>
-          <Box style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex" }} pl={{ sm: "md" }}>
+          <Box style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex" }} pl={{ md: "md" }}>
             <FeedReader
               feeds={feeds}
               feedId={search.feed}
               group={search.group}
               q={search.q}
               state={search.state}
+              read={search.read}
               page={search.page}
               dedupe={search.nodedupe == null}
               onQueryChange={(q) => patchSearch({ q, page: 1 })}
               onStateChange={(state) => patchSearch({ state, page: 1 })}
+              onReadChange={(read) => patchSearch({ read, page: 1 })}
               onPageChange={(page) => patchSearch({ page })}
               onDedupeChange={(dedupe) => patchSearch({ nodedupe: dedupe ? undefined : true })}
               onOpenFeed={(feed) => patchSearch({ feed: feed.id, group: undefined, page: 1 })}
@@ -125,7 +126,7 @@ function FeedsPage() {
         onClose={mobileNavHandlers.close}
         title={t("sidebar.title")}
         size="xs"
-        hiddenFrom="sm"
+        hiddenFrom="md"
       >
         {sidebar}
       </Drawer>

@@ -62,7 +62,7 @@ function isCompactFormField(key: string, schema: JSONSchemaObject): boolean {
   ) {
     return false;
   }
-  if (isText(schema) && (schema["x-multiline"] === true || schema["x-long"] === true)) {
+  if (isText(schema) && schema["x-long"] === true) {
     return false;
   }
   if (WIDE_TEXT_KEYS.has(key)) return false;
@@ -192,6 +192,13 @@ export function SchemaForm({
     return { [prefix]: fields };
   }, [prefix, properties, values]);
 
+  // patch 模式的 diff 基准必须与表单初值同源: 缺失字段在表单里按 schema 默认值展开,
+  // 若基准取原始 `values`, 空值字段会被判成改动, 未编辑也弹出保存条.
+  const baseline = useMemo(
+    () => encodeFormBody(schema, { ...defaultValues[prefix] }),
+    [schema, defaultValues, prefix],
+  );
+
   // JSON Schema 约束校验器 - 投影逐字段错误到 TanStack Form 的 field.meta.errors.
   // i18next 的 t 只接受字面量 key, 校验消息 key 是动态拼接的, 故经 as never 适配
   // (与 use-schema-i18n.ts 的既有约定一致).
@@ -208,18 +215,20 @@ export function SchemaForm({
     validators: { onChange: validate },
     onSubmit: ({ value }) => {
       const sectionVal = isRecord(value) && isRecord(value[prefix]) ? value[prefix] : {};
+      // create: 提交完整表单值; patch: 只提交相对初始值有变化的字段
       if (isCreate) {
         onSave(encodeFormBody(schema, { ...sectionVal }));
         return;
       }
+      const encoded = encodeFormBody(schema, { ...sectionVal });
       const patch: Record<string, unknown> = {};
-      for (const [field, val] of Object.entries(sectionVal)) {
-        if (!deepEqual(val, values[field] ?? null)) {
+      for (const [field, val] of Object.entries(encoded)) {
+        if (!deepEqual(val, baseline[field])) {
           patch[field] = val;
         }
       }
       if (Object.keys(patch).length > 0) {
-        onSave(encodeFormBody(schema, patch));
+        onSave(patch);
       }
     },
   });
@@ -237,7 +246,7 @@ export function SchemaForm({
       selector={(s) => {
         const current = isRecord(s.values) && isRecord(s.values[prefix]) ? s.values[prefix] : {};
         return {
-          dirty: !deepEqual(current, values),
+          dirty: !deepEqual(encodeFormBody(schema, { ...current }), baseline),
           isValid: s.isValid,
         };
       }}

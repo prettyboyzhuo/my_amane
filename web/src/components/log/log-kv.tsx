@@ -2,7 +2,7 @@ import { Text, type MantineColor } from "@mantine/core";
 import { LOG_ENTRY_BASE_KEYS, type LogEntry } from "@/stores/logs";
 
 /**
- * 结构化日志 extra 字段: 按值类型上色; error / HTTP status 走语义色.
+ * 结构化日志 extra 字段: 按值类型上色; error / HTTP status 采用语义色.
  * 键名开放, 不要维护 key→color 表.
  */
 export function LogKvPairs({ entry }: { entry: LogEntry }) {

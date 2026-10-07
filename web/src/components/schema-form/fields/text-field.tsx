@@ -1,8 +1,9 @@
-import { Button, Group, Input } from "@mantine/core";
+import { Button, Group, Input, Textarea } from "@mantine/core";
 import type { AnyFieldApi } from "@tanstack/react-form";
 import type { FieldProps } from "../schema";
 import { isNullable } from "../schema";
 import type { TextJSONSchema } from "../schema/types";
+import { useFieldDomId } from "./dict-entry-form";
 import { FieldChrome } from "./field-chrome";
 import { fieldError } from "./field-error";
 
@@ -10,8 +11,12 @@ import { fieldError } from "./field-error";
  * Generic text input field. Also serves as the fallback for unrecognized schema types.
  * Accepts the broad SchemaFieldProps since it may receive composed or untyped schemas.
  *
- * `x-long` renders a taller textarea even when `x-multiline` isn't set - for
- * long-form text (notes, logs, body text) that benefits from more vertical space.
+ * `x-long` renders a taller textarea (rows=8) for long-form text (notes, logs,
+ * body text) that benefits from more vertical space.
+ *
+ * The multiline branch must use `Textarea`: a bare `Input component="textarea"`
+ * inherits Input's fixed height (`--input-size` = `--input-height`), so `rows`
+ * has no effect and overflowing content only shows a scrollbar.
  */
 export function TextField({
   name,
@@ -21,26 +26,25 @@ export function TextField({
   form,
   variant,
 }: FieldProps<TextJSONSchema>) {
+  const id = useFieldDomId(name);
   const nullable = isNullable(schema);
-  const long = schema["x-long"] === true;
-  const multiline = schema["x-multiline"] === true || long;
+  const multiline = schema["x-long"] === true;
 
   return (
     <form.Field name={name}>
       {(field: AnyFieldApi) => (
         <FieldChrome
           variant={variant}
-          htmlFor={name}
+          htmlFor={id}
           label={label}
           description={description}
           error={fieldError(field)}
         >
           <Group gap="xs" wrap="nowrap" align={multiline ? "flex-start" : "center"}>
             {multiline ? (
-              <Input
-                id={name}
-                component="textarea"
-                rows={long ? 8 : 3}
+              <Textarea
+                id={id}
+                rows={8}
                 value={(field.state.value as string) ?? ""}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                   field.handleChange(e.target.value || (nullable ? null : ""))
@@ -50,7 +54,7 @@ export function TextField({
               />
             ) : (
               <Input
-                id={name}
+                id={id}
                 value={(field.state.value as string) ?? ""}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                   field.handleChange(e.target.value || (nullable ? null : ""))

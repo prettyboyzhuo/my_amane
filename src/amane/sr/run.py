@@ -18,8 +18,6 @@ logger = structlog.get_logger()
 
 @dataclass
 class SrResult:
-    """超分执行结果."""
-
     success: bool
     output: Path | None = None
     error: str | None = None
@@ -31,42 +29,30 @@ class SrResult:
 
 
 async def run_SR(input: Path, output: Path, config: SrConfig, data_dir: Path, *, timeout: float = 600) -> SrResult:
-    """执行图像超分 - 检查二进制, 生成参数, 运行进程.
-
-    Args:
-        input: 输入图片路径 (文件或目录).
-        output: 输出路径.
-        config: SrConfig 配置.
-        data_dir: 应用数据目录.
-        timeout: 进程超时秒数, 默认 600s.
-
-    Returns:
-        SrResult (不抛异常).
-    """
+    """不抛异常; 失败时 SrResult.success 为 False."""
     started = time.monotonic()
     pm = get_preset_meta(config.preset)
     tool = pm.tool
     log = logger.bind(preset=config.preset, tool=tool, input=str(input), output=str(output))
 
-    # 记录输入文件大小
     input_size = input.stat().st_size if input.is_file() else 0
 
     try:
-        # 1. 确保二进制可用
+        # 确保二进制可用
         binary_path = await ensure_binary(tool, data_dir)
         log.debug("sr binary ready", path=str(binary_path))
 
-        # 2. 生成参数
+        # 生成参数
         args = build_args(input, output, config)
         log.debug("sr args", args=args)
 
-        # 3. 确保输出目录存在
+        # 确保输出目录存在
         if input.is_file():
             output.parent.mkdir(parents=True, exist_ok=True)
         else:
             output.mkdir(parents=True, exist_ok=True)
 
-        # 4. 执行 (realesrgan 从 CWD 解析模型路径)
+        # realesrgan 从 CWD 解析模型路径
         log.info("sr process starting")
         proc = await asyncio.create_subprocess_exec(
             binary_path,
@@ -99,7 +85,7 @@ async def run_SR(input: Path, output: Path, config: SrConfig, data_dir: Path, *,
                 stderr=stderr,
             )
 
-        # 5. 验证输出
+        # 校验输出
         output_size = output.stat().st_size if output.is_file() else 0
         if output.is_file() or (output.is_dir() and any(output.iterdir())):
             if input_size and output_size:
@@ -139,7 +125,6 @@ async def run_SR(input: Path, output: Path, config: SrConfig, data_dir: Path, *,
 
 
 def _fmt_size(n: int) -> str:
-    """人类可读的文件大小."""
     for unit in ("B", "KB", "MB"):
         if n < 1024:
             return f"{n}{unit}"

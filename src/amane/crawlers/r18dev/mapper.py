@@ -1,37 +1,24 @@
-"""r18 详情 → MediaMetadata 映射.
+"""dump 中图片 URL 无域名、无扩展名, 映射时补全为 DMM 绝对 URL.
 
-语言偏好: Language 枚举驱动, 未指定时日文优先带回退, 指定 JP/EN 时仅取对应语言.
-
-图片 URL 处理: r18.dev dump 中所有图片 URL 均为无域名, 无扩展名的相对路径
-(如 `digital/video/1hbad00051/1hbad00051pl`). 映射时补全为 DMM 绝对 URL:
-
-- poster / thumb: digital/video 和 digital/amateur 路径 → 双候选 (aws 高清 → pics 标准回落), 其余 → 单候选
-- gallery (extrafanart): 统一 pics.dmm.co.jp 单 URL, 不生成 aws 候选 (flat list 无法区分同图候选对)
-- 统一追加 `.jpg` 扩展名
+指定 JP/EN 时仅取对应语言, 不允许回退; 未指定则日文优先再回退英文.
+digital/video 与 digital/amateur 产出双候选 (aws 高清 → pics 标准); gallery 只用 pics, 不生成 aws 候选.
 """
 
 import re
 from typing import TYPE_CHECKING
 
-from ...enums import Language
-from ..models import MediaMetadata
+from ...enums import ActorGender, Language
+from ..models import FilmActor, MediaMetadata
 
 if TYPE_CHECKING:
     from .models import R18VideoDetail
 
-
-# --- 图片 URL 补全 ---
 
 _CDN_HIGH_RES = "https://awsimgsrc.dmm.co.jp/pics_dig"
 _CDN_STANDARD = "https://pics.dmm.co.jp"
 
 
 def _image_urls(path: str | None) -> list[str]:
-    """产出候选 URL 列表.
-
-    digital/video 和 digital/amateur 路径产出双 URL (aws CDN → pics 回落),
-    其他路径仅产出标准 URL. None / 空串返回空列表.
-    """
     if not path:
         return []
     if path.startswith(("digital/video/", "digital/amateur/")):
@@ -46,19 +33,12 @@ _GALLERY_NUM_RE = re.compile(r"-(\d+)$")
 
 
 def _parse_gallery_num(path: str) -> int | None:
-    """提取 gallery 路径末尾的数字编号, 失败返回 None."""
     m = _GALLERY_NUM_RE.search(path)
     return int(m.group(1)) if m else None
 
 
 def _generate_gallery(first: str | None, last: str | None) -> list[str]:
-    """从首尾 gallery 路径生成完整的 gallery URL 列表.
-
-    r18.dev 仅存储 gallery 首尾路径, 图片按顺序编号 (如 -1 至 -40).
-    解析首尾编号后生成所有中间项, 统一使用标准 CDN (pics.dmm.co.jp) 补全域名与 .jpg 扩展名,
-    不生成 AWS 高清候选 (gallery 图片量大, 双候选浪费).
-    编号异常 (last < first, 包括 -0 结尾) 时仅保留 first.
-    """
+    # dump 只存首尾路径; last < first (含 -0) 时仅保留 first. 不生成 AWS 双候选.
     if not first:
         return []
 
@@ -75,22 +55,11 @@ def _generate_gallery(first: str | None, last: str | None) -> list[str]:
     return [f"{_CDN_STANDARD}/{base}-{n}.jpg" for n in range(first_num, last_num + 1)]
 
 
-# --- 主映射 ---
-
-
 def to_metadata(detail: R18VideoDetail, number: str, language: Language | None = None) -> MediaMetadata:
-    """把 r18 聚合详情映射为通用 MediaMetadata.
-
-     number 用调用方传入的规范化番号 (而非 content_id), 保持与其它爬虫一致.
-
-     语言偏好:
-    - None: 日文优先, 缺则回退英文.
-    - JP: 仅日文, 缺则 None.
-    - EN: 仅英文, 缺则 None.
-    """
+    # number 用调用方传入的规范化番号, 不用 content_id.
     v = detail.video
 
-    # 标题与简介
+    # 标题与简介按语言选取.
     if language is Language.JP:
         title = v.title_ja
         plot = v.comment_ja
@@ -101,7 +70,10 @@ def to_metadata(detail: R18VideoDetail, number: str, language: Language | None =
         title = v.title_ja or v.title_en
         plot = v.comment_ja or v.comment_en
 
-    actors = [n for p in (*detail.actresses, *detail.actors) if (n := p.best(language))]
+    actors = [
+        *[FilmActor(name=n, gender=ActorGender.FEMALE) for p in detail.actresses if (n := p.best(language))],
+        *[FilmActor(name=n, gender=ActorGender.MALE) for p in detail.actors if (n := p.best(language))],
+    ]
     directors = [n for p in detail.directors if (n := p.best(language))]
     tags = [n for c in detail.categories if (n := c.best(language))]
 
@@ -109,18 +81,17 @@ def to_metadata(detail: R18VideoDetail, number: str, language: Language | None =
     publisher = detail.label.best(language) if detail.label else None
     series = detail.series.best(language) if detail.series else None
 
-    # 图片 URL 补全: jacket_full 作 thumb (大图), jacket_thumb 作 poster
-    # digital/video 路径产出双候选 (高清 CDN → 标准回落)
+    # jacket_full 作 thumb, jacket_thumb 作 poster.
     poster_urls = _image_urls(v.jacket_thumb_url)
     thumb_urls = _image_urls(v.jacket_full_url) or _image_urls(v.jacket_thumb_url)
 
-    # Gallery: 从首尾生成全量, gallery_full 优先, 回退 gallery_thumb
+    # 剧照: gallery_full 优先, 再回退 gallery_thumb.
     extrafanart = _generate_gallery(v.gallery_full_first, v.gallery_full_last)
     if not extrafanart:
         extrafanart = _generate_gallery(v.gallery_thumb_first, v.gallery_thumb_last)
 
     release = v.release_date.isoformat() if v.release_date else None
-    score = None  # r18 derived schema 无统一评分字段, 留空
+    score = None
 
     return MediaMetadata(
         number=number,

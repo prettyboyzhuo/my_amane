@@ -1,5 +1,4 @@
 {
-  "title": "元数据",
   "search": {
     "placeholder": "搜索番号、标题…",
     "advanced": "高级搜索",
@@ -14,7 +13,8 @@
     "uncensored": "无码",
     "mosaic": "马赛克标记",
     "definition": "清晰度",
-    "contentType": "片种",
+    "contentType": "类型",
+    "library": "媒体库",
     "any": "不限",
     "yes": "是",
     "no": "否",
@@ -28,6 +28,7 @@
       "hentai": "动漫"
     },
     "mosaics": {
+      "censored": "有码",
       "uncensored": "无码标记",
       "cracked": "破解",
       "leaked": "流出"
@@ -35,6 +36,7 @@
   },
   "filePhase": {
     "subtitle": "中字",
+    "censored": "有码",
     "uncensored": "无码",
     "cracked": "破解",
     "leaked": "流出"
@@ -51,21 +53,17 @@
     "fileCount": "关联文件"
   },
   "actions": {
-    "view": "查看详情",
-    "rescape": "重新刮削",
     "scrape": "重新刮削",
     "batchScrape": "批量重新刮削",
     "batchDelete": "批量删除",
     "confirmBatchDeleteTitle": "删除选中的元数据？",
-    "confirmBatchDeleteDesc": "将永久删除选中的元数据条目，此操作不可撤销。"
+    "confirmBatchDeleteDesc": "将永久删除选中的元数据条目，此操作不可撤销"
   },
   "edit": {
     "title": "编辑元数据"
   },
   "detail": {
-    "title": "元数据详情",
     "fields": {
-      "number": "番号",
       "title": "标题",
       "studio": "厂商",
       "publisher": "发行商",
@@ -81,28 +79,58 @@
       "poster": "海报",
       "thumb": "封面",
       "extrafanart": "剧照",
-      "fieldSources": "字段来源",
-      "sources": "数据来源",
-      "sourceUrls": "外部链接",
-      "externalIds": "外部 ID"
+      "sourceUrls": "外部链接"
     },
     "connections": "关联文件",
     "noFiles": "无关联文件",
-    "files": "{{count}} 个文件",
+    "openInLibrary": "在媒体库中查看",
     "userTags": "用户标签",
     "noUserTags": "暂无用户标签",
-    "selectUserTag": "选择用户标签…",
+    "selectUserTag": "选择或输入用户标签…",
     "newUserTagPlaceholder": "新建用户标签…",
+    "addUserTag": "添加用户标签",
+    "removeUserTag": "移除用户标签",
+    "applyAddUserTags": "添加 {{count}} 个",
+    "applyAddUserTags_one": "添加 {{count}} 个",
+    "applyAddUserTags_other": "添加 {{count}} 个",
+    "applyRemoveUserTags": "移除 {{count}} 个",
+    "applyRemoveUserTags_one": "移除 {{count}} 个",
+    "applyRemoveUserTags_other": "移除 {{count}} 个",
+    "createUserTag": "创建「{{name}}」",
     "detachUserTag": "从此影片移除",
-    "deleteUserTag": "删除标签",
-    "confirmDeleteUserTag": "确定永久删除用户标签「{{name}}」？所有影片上的挂载都会移除。",
     "comments": "评论",
-    "noComments": "暂无评论",
     "commentPlaceholder": "写下评论…",
     "addComment": "发表评论",
+    "editComment": "编辑评论",
+    "commentEditedAt": "（已编辑 {{time}}）",
+    "commentJustNow": "刚刚",
+    "commentSortLabel": "按编辑时间",
+    "commentSortNewest": "新 → 旧",
+    "commentSortOldest": "旧 → 新",
+    "deleteCommentTitle": "删除评论",
+    "deleteCommentMessage": "删除后无法恢复",
     "playTrailer": "播放预告片",
     "closeTrailer": "关闭预告片",
     "coverUnavailable": "封面不可用",
+    "playback": "播放",
+    "playbackFailed": "无法播放此码流",
+    "playbackFailedWithStatus": "无法播放此码流（HTTP {{status}}）",
+    "playbackFailedHls": "无法播放此码流（hls.js 错误类型 {{details}}）：{{url}}",
+    "playbackFailedHlsWithStatus": "无法播放此码流（hls.js 错误类型 {{details}}，HTTP {{status}}）：{{url}}",
+    "playbackUnsupported": "此播放源的媒体类型无法在页面内播放",
+    "playbackUnavailable": "该播放源当前不可用",
+    "playbackUnavailableOption": "{{name}}（当前不可用）",
+    "playbackSourcesFailed": "无法加载播放源",
+    "playbackStreamsFailed": "无法加载流列表",
+    "playbackSourceLabel": "播放源",
+    "playbackStreamLabel": "码流",
+    "playbackVolume": "音量",
+    "playbackBrightness": "亮度",
+    "playbackRate": "倍速",
+    "playbackToggle": "播放/暂停",
+    "playbackClose": "关闭",
+    "playbackMuted": "静音",
+    "commentSeek": "跳转到 {{time}}",
     "cropPoster": {
       "action": "裁切海报",
       "title": "裁切海报",
@@ -116,7 +144,11 @@
       "needSelection": "请先框选有效区域",
       "success": "海报已更新",
       "noThumb": "需要封面图才能裁切海报"
-    }
+    },
+    "playbackCopyTimestamp": "复制时间戳",
+    "playbackCopyLink": "复制当前时间的链接",
+    "playbackCopied": "已复制到剪贴板",
+    "playbackCopyFailed": "复制失败"
   },
   "browse": {
     "title": "分类浏览",
@@ -137,7 +169,6 @@
     "scrapeQueued": "已提交演员刮削任务",
     "person": {
       "aliases": "别名",
-      "ruleAliases": "规则别名",
       "gender": "性别",
       "genderFemale": "女",
       "genderMale": "男",
@@ -158,8 +189,10 @@
       "sourceUrl": "来源",
       "images": "头像",
       "cm": "{{value}} cm",
-      "birthdayFormat": "存库格式 YYYY-MM-DD（也接受 1991/1/1、1991年1月1日）"
-    }
+      "birthdayFormat": "格式: 2000-01-01 或 2000/1/1 或 2000年1月1日"
+    },
+    "tagFilms": "影片",
+    "tagActors": "演员"
   },
   "view": {
     "grid": "海报",
@@ -190,10 +223,10 @@
     "batchGenderDone": "已将 {{count}} 位演员标为「{{gender}}」",
     "batchGenderFailed": "{{count}} 位更新失败",
     "clearPerson": "清空信息",
-    "clearPersonBody": "将清空「{{name}}」的头像、简介、体貌等人物字段，演员条目和出演作品会保留。性别与刮削缓存不改；之后普通刮削可能从缓存填回。",
+    "clearPersonBody": "清空 「{{name}}」 除性别外的所有信息并解除全部锁定. 不删除条目与刮削缓存",
     "clearPersonDone": "已清空人物信息",
     "batchClearPerson": "批量清空信息",
-    "batchClearPersonBody": "将清空选中 {{count}} 位演员的人物字段，不删除条目。性别与刮削缓存不改。",
+    "batchClearPersonBody": "将清空 {{count}} 位演员除性别外的所有信息并解除全部锁定. 不删除条目与刮削缓存",
     "batchClearPersonDone": "已清空 {{count}} 位演员的人物信息",
     "batchClearPersonFailed": "{{count}} 位清空失败",
     "scrapeMissingOnPage": "刮削本页空缺",
@@ -203,28 +236,32 @@
     "cupShort": "{{cup}}罩杯",
     "filmography": "出演作品（{{count}}）",
     "noPhoto": "暂无头像",
-    "noPersonInfo": "暂无人物信息",
     "goToLibrary": "转到片库",
     "editTitle": "编辑演员",
-    "genderHint": "未知时刮削仅使用男女通用站（如维基），不会请求女向站，避免误匹配。",
-    "genderUnknownHint": "未标注性别：刮削仅使用通用站。标为「女」后可再刮以补全 minnano / gFriends。",
+    "lockManage": "人物字段锁定",
+    "cropAvatar": {
+      "action": "裁切头像",
+      "title": "裁切头像",
+      "success": "头像已更新"
+    },
+    "genderHint": "未知时仅查询通用来源, 避免误匹配. 部分来源可自动获取此字段",
+    "genderUnknownHint": "",
     "aliasesHint": "回车或逗号添加，点 × 删除",
     "setDisplayName": "设为展示名",
-    "setDisplayNameBody": "将「{{alias}}」设为「{{name}}」的展示名？相关影片中的演员名将随之改写，当前展示名会保留为别名。",
+    "setDisplayNameBody": "将「{{alias}}」设为「{{name}}」的展示名？「{{name}}」会保留为别名",
     "setDisplayNameDone": "已设为展示名",
     "imagesEdit": "头像 URL",
-    "imagesEditHint": "第一张为主图（详情大图与头像墙）。拖拽卡片调整顺序，点图预览。",
+    "imagesEditHint": "第一张为主图（详情大图与头像墙）。拖拽卡片调整顺序，点图预览",
     "primaryImage": "主图",
     "reorderImage": "拖拽排序头像",
     "removeImage": "删除这张头像",
     "rawSources": "刮削来源快照",
-    "rawSourcesHint": "编辑时只读对照各站原始结果，不写入规范字段。"
+    "rawSourcesHint": "",
+    "viewAll": "查看全部 {{count}} 位"
   },
-  "backToList": "返回列表",
   "notFound": "未找到元数据",
   "invalidId": "无效的元数据 ID",
-  "viewFullDetail": "查看完整详情",
-  "confirmDelete": "确定删除元数据 #{{id}}？此操作不可撤销。",
+  "confirmDelete": "确定删除元数据 #{{id}}？此操作不可撤销",
   "empty": "暂无元数据记录",
   "editor": {
     "title": {
@@ -241,7 +278,7 @@
     },
     "release": {
       "label": "发行日期",
-      "description": "存库格式 YYYY-MM-DD；也可粘贴带时刻的 ISO 串，保存时只保留日期"
+      "description": "格式: 2000-01-01"
     },
     "runtime": {
       "label": "时长 (分钟)"
@@ -283,16 +320,15 @@
   "manage": {
     "name": "名称",
     "count": "数量",
-    "mergeHint": "已选 {{count}} 项；勾选来源后点击目标行的合并图标",
     "mergeGuide": "勾选来源后点击目标行的合并图标",
     "mergeNeedSources": "请先勾选要合并的来源项，再点目标项的合并",
     "merge": "合并到此项",
     "mergeConfirm": "确认合并",
     "mergeConfirmBody": "将把 {{count}} 个来源合并到目标项",
-    "deleteFacetBody": "将从所有影片中移除「{{name}}」，并加入黑名单（重新刮削也不会再出现）。",
-    "deleteUserTagBody": "删除用户标签「{{name}}」？挂载关系会一并清除。",
+    "deleteFacetBody": "将从所有影片中移除「{{name}}」, 并加入黑名单, 后续刮削时自动剔除",
+    "deleteUserTagBody": "确定永久删除用户标签 「{{name}}」？将从所有影片上移除该标签",
     "rulesTitle": "用户规则",
-    "rulesHint": "别名与黑名单在重新刮削时仍会生效。移除规则不会回填历史影片，仅影响之后的写入。",
+    "rulesHint": "刮削时自动按别名重命名并剔除黑名单. 移除规则不会影响现有影片",
     "rulesEmpty": "暂无规则",
     "ruleSource": "源名称",
     "ruleAction": "动作",
@@ -303,7 +339,7 @@
   },
   "merge": {
     "title": "对比来源",
-    "noRawData": "无原始数据可用于合并。",
+    "noRawData": "无原始数据可用于合并",
     "apply": "应用合并",
     "revert": "回退",
     "revertAll": "全部回退",
@@ -312,5 +348,14 @@
     "changedCount_one": "已修改 {{count}} 个字段",
     "changedCount_other": "已修改 {{count}} 个字段",
     "noChanges": "无修改"
+  },
+  "lock": {
+    "manage": "元数据锁定",
+    "all": "全部锁定",
+    "clearAll": "全部解除",
+    "locked": "已锁定",
+    "unlocked": "未锁定",
+    "toggleLocked": "解锁字段",
+    "toggleUnlocked": "锁定字段"
   }
 }

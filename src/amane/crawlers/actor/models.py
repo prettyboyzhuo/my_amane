@@ -5,8 +5,6 @@ from ...utils.dates import normalize_calendar_date
 
 
 class ActorMetadata(BaseModel):
-    """单站演员刮削结果; 字段均可选 (头像源通常只填 image_urls)."""
-
     name: str | None = None
     aliases: list[str] = Field(default_factory=list)
     gender: ActorGender | None = None
@@ -22,7 +20,7 @@ class ActorMetadata(BaseModel):
     image_urls: list[str] = Field(default_factory=list)
     provider_ids: dict[str, str] = Field(default_factory=dict)
     source_url: str | None = None
-    # 源站相对路径 (如 gFriends Content/...); 存入 raw 便于溯源, 不参与聚合标量.
+    # 源站相对路径; 存入 raw 便于溯源, 不参与聚合标量.
     content_path: str | None = None
 
     @field_validator("birthday", mode="before")

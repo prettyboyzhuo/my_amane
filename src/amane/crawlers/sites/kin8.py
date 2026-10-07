@@ -5,7 +5,7 @@ from parsel import Selector
 
 from ...enums import SiteName
 from ..base import Crawler, CrawlerProfile
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
 
 
@@ -15,7 +15,6 @@ class Kin8Crawler(Crawler):
         return CrawlerProfile(name=SiteName.KIN8, base_url="https://www.kin8tengoku.com")
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """从番号提取数字 ID, 构造详情页 URL."""
         number = query.number
         match = re.search(r"(\d+)", number)
         if not match:
@@ -28,7 +27,6 @@ class Kin8Crawler(Crawler):
         return None
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """解析 Kin8tengoku 详情页."""
         text = await self.client.get_html(url)
         if not text:
             return None
@@ -59,7 +57,7 @@ class Kin8Crawler(Crawler):
         return MediaMetadata(
             number=number,
             title=title,
-            actors=actors,
+            actors=film_actors(actors),
             release=release,
             tags=tags,
             thumb_urls=[cover] if cover else [],

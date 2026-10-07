@@ -9,11 +9,7 @@ from .recorder import task_dir_for
 
 
 def build_record_zip(log_dir: Path, task_id: int, *, include_secrets: bool = False) -> bytes:
-    """打包 task-{id}/ 目录为 zip bytes.
-
-    默认排除 ``.secrets.hot.json``. ``include_secrets=True`` 时用密文配置替换
-    ``config.hot.json``, 并要求旁路密文文件存在.
-    """
+    """默认排除 ``.secrets.hot.json``. ``include_secrets=True`` 时用密文配置替换 ``config.hot.json``, 并要求旁路密文文件存在."""
     root = task_dir_for(log_dir, task_id)
     if not root.is_dir() or not (root / "manifest.json").is_file():
         raise FileNotFoundError(f"record not found for task {task_id}")
@@ -28,14 +24,13 @@ def build_record_zip(log_dir: Path, task_id: int, *, include_secrets: bool = Fal
             if not path.is_file():
                 continue
             rel = path.relative_to(root)
-            # 永远不把旁路密文原样打进 zip 文件名; include_secrets 时改写 config.hot.json
+            # 旁路密文不得以原文件名进入 zip; include_secrets 时改写入 config.hot.json
             if path.name == SECRETS_HOT_FILENAME:
                 continue
             if include_secrets and path.name == "config.hot.json":
                 zf.writestr(str(Path(f"task-{task_id}") / "config.hot.json"), secrets_path.read_bytes())
                 continue
             if include_secrets and path.name == "manifest.json":
-                # 标记 redacted=false
                 import json
 
                 data = json.loads(path.read_text(encoding="utf-8"))

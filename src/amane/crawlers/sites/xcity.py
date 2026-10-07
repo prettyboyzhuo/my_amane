@@ -4,7 +4,7 @@ from parsel import Selector
 
 from ...enums import SiteName
 from ..base import Crawler, CrawlerProfile
-from ..models import FetchOptions, MediaMetadata, SearchQuery
+from ..models import FetchOptions, MediaMetadata, SearchQuery, film_actors
 from ..parsing import extract_all_texts, extract_text
 
 
@@ -14,7 +14,6 @@ class XCityCrawler(Crawler):
         return CrawlerProfile(name=SiteName.XCITY, base_url="https://xcity.jp", cookies={"adc": "1"})
 
     async def _search(self, query: SearchQuery, options: FetchOptions | None = None) -> str | None:
-        """搜索番号, 返回详情页 URL."""
         number = query.number
         search_term = number.replace("-", "")
         search_url = f"{self.base_url}/result_published/?q={search_term}"
@@ -28,7 +27,6 @@ class XCityCrawler(Crawler):
         return urls[0] if urls else None
 
     async def _scrape(self, url: str, options: FetchOptions | None = None) -> MediaMetadata | None:
-        """解析 XCity 详情页."""
         text = await self.client.get_html(url, cookies=self.cookies)
         if not text:
             return None
@@ -51,7 +49,7 @@ class XCityCrawler(Crawler):
         return MediaMetadata(
             number=number or title,
             title=title,
-            actors=actors,
+            actors=film_actors(actors),
             studio=studio or None,
             release=release_raw or None,
             runtime=runtime,

@@ -1,14 +1,15 @@
-"""gFriends 头像库 - Filetree 索引按名查图."""
+"""按艺名查 gFriends Filetree 头像 URL."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 from urllib.parse import quote, urlsplit
 
 from amane.enums import ActorGender, SiteName
+from amane.net.connectivity import ConnectivityOutcome, probe_get
 from amane.plugins.models import SourceCapability
 
 from ...base import CrawlerProfile
@@ -20,15 +21,11 @@ _DEFAULT_REPO = "https://github.com/gfriends/gfriends"
 
 @dataclass(frozen=True, slots=True)
 class GFriendsImage:
-    """Filetree 命中: raw 图 URL + 仓库相对路径."""
-
     url: str
     path: str  # Content/{folder}/{file}
 
 
 class GFriendsActorCrawler(ActorCrawler):
-    """按艺名查 gFriends Filetree 头像 URL."""
-
     def __init__(self, client: Any, config: Any = None, *, data_dir: Path | None = None, repo_url: str | None = None):
         super().__init__(client, config)
         self._data_dir = data_dir
@@ -49,7 +46,6 @@ class GFriendsActorCrawler(ActorCrawler):
         )
 
     async def fetch(self, name: str) -> ActorMetadata | None:
-        """按名查 Filetree 索引取头像; 未命中返回 None."""
         index = await self._ensure_index()
         hit = _lookup(index, name)
         if not hit:
@@ -62,19 +58,25 @@ class GFriendsActorCrawler(ActorCrawler):
             content_path=hit.path,
         )
 
+    @override
+    async def check_connectivity(self) -> ConnectivityOutcome:
+        """真实入口是仓库根下的 ``Filetree.json``: 仓库目录本身 404, 探测 ``base_url`` 会假报不可达."""
+        return await probe_get(self.client.web_client, self._tree_url(), cookies=self.cookies, headers=self.headers)
+
+    def _tree_url(self) -> str:
+        return f"{self._raw_base()}/Filetree.json"
+
     async def _search(self, name: str) -> str | None:
-        """未使用; 本源直接经 fetch() 查索引."""
         raise NotImplementedError
 
     async def _scrape(self, url: str) -> ActorMetadata | None:
-        """未使用; 本源直接经 fetch() 查索引."""
         raise NotImplementedError
 
     async def _ensure_index(self) -> dict[str, GFriendsImage]:
-        """加载索引: 优先读本地缓存, 否则拉取 Filetree.json 并写缓存."""
         if self._index is not None:
             return self._index
         cache = self._cache_path()
+        # 优先读本地缓存.
         if cache and cache.exists():
             try:
                 raw = json.loads(cache.read_text(encoding="utf-8"))
@@ -86,7 +88,8 @@ class GFriendsActorCrawler(ActorCrawler):
             except OSError, json.JSONDecodeError:
                 self.logger.warning("gfriends cache unreadable", path=str(cache))
 
-        tree_url = f"{self._raw_base()}/Filetree.json"
+        # 拉取 Filetree 并写缓存.
+        tree_url = self._tree_url()
         data = await self.client.get_json(tree_url, cookies=self.cookies)
         if not isinstance(data, dict):
             self._index = {}
@@ -115,11 +118,7 @@ class GFriendsActorCrawler(ActorCrawler):
 
 
 def flatten_filetree(tree: dict[str, Any], *, raw_base: str) -> dict[str, GFriendsImage]:
-    """
-    扁平化 Filetree.json → filename → raw URL + Content 相对路径.
-
-    Content 子目录按名字母序遍历; 同一文件名先出现者保留 (倾向非 z-* 低质源).
-    """
+    """Content 子目录按名字母序遍历; 同一文件名先出现者保留 (倾向非 z-* 低质源)."""
     content = tree.get("Content")
     if not isinstance(content, dict):
         return {}
@@ -131,9 +130,8 @@ def flatten_filetree(tree: dict[str, Any], *, raw_base: str) -> dict[str, GFrien
         for filename, value in files.items():
             if filename in out:
                 continue
-            # value 形如 "Name.jpg?t=..." 或指向规范文件名
+            # value 常为规范/AI-Fix 文件名, 可带 ``?t=``; 路径 = Content/{folder}/{target}.
             target = str(value).split("?", 1)[0] if value else str(filename)
-            # value 常为规范/AI-Fix 文件名; 路径 = Content/{folder}/{target}
             rel_path = f"Content/{folder}/{target}"
             encoded_folder = quote(str(folder), safe="")
             encoded_file = quote(target, safe="")
@@ -151,24 +149,21 @@ def _lookup(index: dict[str, GFriendsImage], name: str) -> GFriendsImage | None:
 
 
 def _blob_url(repo_url: str, content_path: str) -> str:
-    """GitHub blob 页 (详情 source Badge 可点开)."""
     encoded = "/".join(quote(part, safe="") for part in content_path.split("/"))
     return f"{repo_url.rstrip('/')}/blob/master/{encoded}"
 
 
 def _path_from_raw_url(url: str) -> str | None:
-    """从 raw.githubusercontent URL 还原 Content/... 相对路径."""
     path = urlsplit(url).path
     marker = "/Content/"
     idx = path.find(marker)
     if idx < 0:
         return None
-    # path 形如 /owner/repo/master/Content/...
     return path[idx + 1 :]  # drop leading /
 
 
 def _index_from_cache(raw: dict[str, Any]) -> dict[str, GFriendsImage] | None:
-    """兼容旧缓存 (filename→url 字符串) 与新格式 (filename→{url,path})."""
+    # 兼容 filename→url 字符串与 filename→{url,path}.
     out: dict[str, GFriendsImage] = {}
     for key, value in raw.items():
         if isinstance(value, str):

@@ -1,8 +1,4 @@
-"""把模型打出的命名空间工具名改写成当前可执行名.
-
-只在 ``after_model_request`` 改 ``ModelResponse`` (即执行与落入 history 的名字).
-流式 SSE 仍可能带模型原始名.
-"""
+"""只在 ``after_model_request`` 改写 ``ModelResponse`` (执行与落入 history 的名字). 流式 SSE 仍可能带模型原始名."""
 
 from __future__ import annotations
 
@@ -21,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def canonical_tool_name(name: str, available: AbstractSet[str]) -> str:
-    """未知名若 ``__`` 后缀恰好是当前可调用工具, 则用该后缀; 否则原样返回."""
+    """未知名若 ``__`` 后缀恰好是当前可调用工具则用该后缀, 否则原样返回."""
     if name in available:
         return name
     if "__" not in name:
@@ -33,7 +29,6 @@ def canonical_tool_name(name: str, available: AbstractSet[str]) -> str:
 
 
 def alias_response_tool_names(response: ModelResponse, available: AbstractSet[str]) -> ModelResponse:
-    """改写响应里不可调用、但后缀可调用的 ``ToolCallPart.tool_name``."""
     changed = False
     parts: list[ModelResponsePart] = []
     for part in response.parts:
@@ -51,7 +46,7 @@ def alias_response_tool_names(response: ModelResponse, available: AbstractSet[st
 
 @dataclass
 class ToolNameAlias(AbstractCapability[AgentDeps]):
-    """始终在场: 执行前把 ``name__name`` 裁成当前可调用工具名."""
+    """执行前把 ``name__name`` 裁成当前可调用工具名."""
 
     async def after_model_request(
         self,

@@ -6,6 +6,60 @@
 
 「媒体库 → 添加」
 
+## 文件监控
+
+每个库选择如何发现新文件. 自动化级别仍决定发现之后是否入库、是否刮削; 整理始终手动触发.
+
+- **本地文件** (默认): 使用操作系统文件事件. 适用于本机磁盘、以及能产生创建事件的挂载.
+- **CD2 webhook**: 接收 CloudDrive2 的文件通知 webhook, 不监听挂载路径. Webhook 需 CloudDrive2 会员; 性能好于监听挂载路径.
+
+CD2 webhook 库须同时填写:
+
+- **路径**: 本机可扫描的挂载目录 (如 `/Volumes/115/云下载`, 或 Docker bind 后的路径). 改动这一项时解析成真实路径, 因此填符号链接别名时界面上显示的是链接指向的目录.
+- **CloudDrive 路径**: 库路径对应的 CloudDrive2 内路径 (如 `/115open/云下载`). 不是 `/Volumes/...` 或 Windows 盘符. 多库时按最长前缀匹配. 不允许两个 CD2 webhook 库使用相同或互为前缀的 CloudDrive 路径.
+
+`watcher.use_polling` 只作用于「本地文件」, 不能替代 CD2 webhook. 目录整树复制或离线完成往往只推送结果目录一条 `create`; Amane 会对该子树扫描. 未推送的变更仍可手动扫描.
+
+### CloudDrive2 webhook
+
+文件变更 webhook 是 CloudDrive2 的会员功能. Amane 与 CloudDrive2 无隶属、合作或担保关系; 下列菜单名与配置文件名以 CloudDrive2 当前版本为准.
+
+在 CloudDrive2 网页: **设置 → Webhook → 添加 Webhook**.
+
+也可编辑 CloudDrive2 配置目录中的 `webhook.toml` (或 `Configuration.toml` 里的 `[file_system_watcher]`). 对接 Amane 时必要字段:
+
+| 字段 | 值 |
+|------|----|
+| `url` | `http(s)://<Amane 主机>/api/webhooks/clouddrive` |
+| `method` | `POST` |
+| `enabled` | `true` |
+| `Authorization` | `Bearer <Amane API Token>` |
+| `body` | JSON, 含 `data` 数组; 每项含 `action`、`is_dir`、`source_file`, `rename` 时另有 `destination_file` |
+
+示例:
+
+```toml
+[file_system_watcher]
+url = "http://<Amane 主机>/api/webhooks/clouddrive"
+method = "POST"
+enabled = true
+body = '''
+{
+  "data": [
+    {
+      "action": "{action}",
+      "is_dir": "{is_dir}",
+      "source_file": "{source_file}",
+      "destination_file": "{destination_file}"
+    }
+  ]
+}
+'''
+
+[file_system_watcher.headers]
+Authorization = "Bearer <Amane API Token>"
+```
+
 ## 路径模板
 
 路径模板决定整理后文件的存储位置. 模板使用占位符变量:
@@ -15,9 +69,13 @@
 | 占位符 | 说明 | 示例值 |
 | -------- | ------ | -------- |
 | `{number}` | 番号 | `MIDV-123` |
+| `{prefix}` | 番号前缀 | `MIDV` |
+| `{suffix}` | 番号去掉前缀后的剩余段 | `123` |
 | `{title}` | 标题 | `Title Here` |
 | `{actor}` | 第一主演 | `Actor1` |
-| `{actors}` | 演员 (逗号分隔) | `Actor1, Actor2` |
+| `{actors}` | 演员 (逗号分隔) | `Actor1,Actor2` |
+| `{actress}` | 第一位女演员 | `Actress1` |
+| `{actresses}` | 女演员 (逗号分隔) | `Actress1,Actress2` |
 | `{studio}` | 制作商 | `Studio Name` |
 | `{publisher}` | 发行商 | `Publisher Name` |
 | `{series}` | 系列 | `Series Name` |
@@ -26,16 +84,23 @@
 | `{ext}` | 正在放置的文件扩展名 | `mp4` / `srt` |
 | `{cd?}` | CD/分集编号 | `1` / `2` / 空 |
 | `{sub?}` | 中字标记 | `C` / 空 |
-| `{mosaic?}` | 有无码标记 | `uncensored` / `cracked` / `leaked` / 空 |
+| `{content_type}` | 内容类型 | `censored` / `uncensored` / `chinese` / `western` / `fc2` / `amateur` / `hentai` |
+| `{mosaic?}` | 马赛克标记 | `censored` / `uncensored` / `cracked` / `leaked` / 空 |
 | `{def?}` | 分辨率标记 | `4K` / `1080p` / `HD` / 空 |
 | `{raw_name}` | 源视频文件名 | `A/B.mp4` → `B` |
 | `{raw_dir}` | 源文件父目录名 | `A/B/C.mp4` → `B` |
 | `{video_dir}` | 整理后视频所在目录 | — |
 | `{video_name}` | 整理后视频文件名, 不含扩展名 | `MIDV-123-CD1-C` |
-| `{video_relpath}` | 整理后视频相对库根的路径 | `Studio/ABC-123/ABC-123.mp4` |
+| `{video_relpath}` | 整理后视频相对库根目录的路径 | `Studio/ABC-123/ABC-123.mp4` |
 | `{link_dir}` | 链接文件所在目录 | — |
 | `{link_name}` | 整理后链接文件名, 不含扩展名 | — |
 | `{raw_srt_name}` | 字幕原文件名, 不含扩展名 | `foo.zh.srt` → `foo.zh` |
+
+马赛克类型依据关键词与番号解析判定. 文件名 `CRACKED` / `-U` / `-UC` 为破解 (`-UC` 同时为中字); `无码` / `UNCENSORED` 为无码; `流出` / `LEAKED` 为流出. 目录名为整段 `uncensored` / `cracked` / `leaked` / `无码` / `破解` / `流出` 时同样判定. 番号解析为有码且无上述标记时为 `censored`; 解析为无码且无上述标记时为 `uncensored`. 国产 / FC2 / 欧美等无法判定时为空.
+
+`{actress}` / `{actresses}` 排除已标为男性的演员; 女性与尚未识别性别的名字保留. 名单为空时输出 `Unknown`.
+
+`{prefix}` / `{suffix}` 从刮削所得 `{number}` 拆出, 不依据源文件名. `MIDV-123` → 前缀 `MIDV`、剩余段 `123`; `MKY-HS-001` → `MKY-HS` / `001`.
 
 未列出范围的占位符在各模板与 STRM 内容模板中均可使用. 下表所列占位符有范围限制; 写在不可用的模板中会得到 `Unknown`.
 
@@ -51,7 +116,7 @@
 视频: {studio}/{number}/{number}[-CD{cd?}][-{sub?}].{ext}
 缩略图: {link_dir}/thumb.jpg
 海报: {link_dir}/poster.jpg
-NFO: {link_dir}/{number}.nfo
+NFO: {link_dir}/{video_name}.nfo
 预告片: {link_dir}/trailer.mp4
 字幕: {link_dir}/{raw_srt_name}.{ext}
 ```
@@ -61,7 +126,7 @@ NFO: {link_dir}/{number}.nfo
 可用 `[...]` 将模板中的一段包裹为组, 组内所有可空占位符全为空时整组省略. 这主要是为了处理分集、中字等可选属性, 例如:
 
 ```
-{number}[-CD{cd?}][-{mosaic?|uncensored=U}{sub?}].{ext}
+{number}[-CD{cd?}][-{mosaic?|cracked=U,censored=}{sub?}].{ext}
 ```
 
 - 源文件 `MIDV-123-U-C-CD2.mp4` → `MIDV-123-CD2-UC.mp4`
@@ -83,19 +148,23 @@ NFO: {link_dir}/{number}.nfo
 占位符支持 `{name|原值=输出,另一值=输出}` 语法, 将规范值改写成自定义输出:
 
 ```
-{mosaic?|uncensored=U,cracked=破解,leaked=流出}
+{mosaic?|censored=有码,uncensored=无码,cracked=U,leaked=流出}
+{mosaic?|=未知}
+{content_type|censored=有码,uncensored=无码}
 {def?|4K=2160p,1080p=FHD}
 ```
 
-- 未列出的值保持原样 (如 `{mosaic?|uncensored=U}`, cracked / leaked 仍为规范值)
+- 未列出的值保持原样 (如 `{mosaic?|cracked=U}`, censored / uncensored / leaked 仍为规范值)
+- `{name|=缺省}` 将空值映成缺省 (无法判定马赛克时, 如国产)
 - 可以映射成空串 (配合可选组让某个值不出现在路径中)
 - 目录段和文件名段可以分别写映射, 比如目录用规范值便于管理, 文件名用短标记节省字符:
 
 ```
-{mosaic?}/{number}[-{mosaic?|uncensored=U,cracked=破解,leaked=流出}].{ext}
+{mosaic?}/{number}[-{mosaic?|censored=,uncensored=无码,cracked=U,leaked=流出}].{ext}
 ```
 
-源文件 `MIDV-123-無碼.mp4` → `uncensored/MIDV-123-U.mp4`
+源文件 `MIDV-123.mp4` → `censored/MIDV-123.mp4`
+源文件 `MIDV-123-無碼.mp4` → `uncensored/MIDV-123-无码.mp4`
 
 ## 链接模板与模式
 
@@ -112,6 +181,8 @@ NFO: {link_dir}/{number}.nfo
 - 视频在挂载盘上按模板整理
 - 本地创建 strm/软链接 + NFO/海报/字幕等
 - 媒体服务器 Emby/Jellyfin 添加本地媒体库即可
+
+库外这一份不归 Amane 清理: 在媒体库里删除视频只会删掉库内的文件, 库外链接树里的 strm 与 NFO / 图片会留在原处, 需要自己清理.
 
 `strm_content_template` 用于设置 STRM 文件的内容模板. 默认情况下, STRM 会写入原视频文件的绝对路径,
 某些场景需要使用网盘 / OpenList URL, 则可手动设置模板, 例如:
@@ -131,6 +202,9 @@ https://example.com/{video_relpath} -> https://example.com/ABC-123/ABC-123.mp4
 3. 按放置方式 (移动/复制/硬链接/符号链接) 执行
 4. 如果配置了链接模板, 在库外创建 strm 文件或软链接
 5. 按源文件标记添加封面 / 海报水印
+
+!!! warning
+    复制、硬链接、符号链接在目标路径仍位于本库内时, 整理前路径上的文件仍然保留. 索引改为指向目标路径之后, 再次扫描会把整理前的路径登记为另一条正片. 不推荐在库内使用这三种放置方式; 库内整理使用移动. 它们只适用于视频模板指向库外路径的一次性写出. 为播放器准备库外入口时使用链接模板.
 
 !!! note
     目前整理操作无自动触发途径, 需要手动执行.
@@ -155,7 +229,8 @@ Amane 支持自动识别分集文件名, 目前支持以下几种常见标记:
 
 - 扩展名可在库设置中配置, 默认 `.srt` `.ass` `.ssa` `.vtt` `.sub`. 留空则不处理字幕.
 - 多个字幕全部带走, 保持原文件名和扩展名, 默认放到整理后视频的同一目录.
-- 按字幕文件名上的分集标记与当前视频配对; 解析不出的跟无分集或 CD1 的视频.
+- 字幕文件名能解析出番号时, 必须与当前视频番号相同, 并按分集标记配对.
+- 解析不出番号时, 按同目录分集规则配对: 有标记的跟当前视频同号; 解析不出分集的跟无分集或 CD1 的视频.
 
 ## 预告片跳过
 
@@ -166,14 +241,14 @@ Amane 支持自动识别分集文件名, 目前支持以下几种常见标记:
 
 ## 黑名单
 
-可配置一组正则规则, 对文件名 (含扩展名) 进行匹配, 命中文件不入库且整理时移入 `.amane_trash`,此目录在扫描与监控中始终忽略.
+可配置一组正则规则, 对文件名 (含扩展名) 进行匹配, 命中文件不入库, 并作为无效文件进入清理清单.
 
 !!! note
-    此功能主要用于处理广告文件, `.amane_trash` 类似于回收站. 为避免误删 amane 永远不会自动删除此目录, 用户需自行手动清理.
+    此功能主要用于处理广告文件. 命中文件不会被自动删除: 在库页面打开「清理无效文件」核对清单后确认删除. 历史遗留的 `.amane_trash` 目录不参与扫描与监控, 里面有内容时「清理无效文件」会多出回收站页签.
 
 ## 小文件过滤
 
-设置最小视频大小 (默认关闭). 小于此值的文件不会被当作正片入库, 整理时移入 `.amane_trash`:
+设置最小视频大小 (默认关闭). 小于此值的文件不会被当作正片入库, 而是作为无效文件进入清理清单:
 
 - 只作用于视频扩展名, 图片、NFO、字幕不受此阈值影响
 - `.strm` 被特别剔除, 不按大小过滤
@@ -186,7 +261,7 @@ Amane 支持自动识别分集文件名, 目前支持以下几种常见标记:
 扫描是发现媒体文件并注册到数据库的过程:
 
 - 手动扫描: 在库页面点击「扫描」
-- 自动扫描: 文件监控检测到变化时自动触发
+- 自动扫描: 「本地文件」由操作系统事件触发; 「CD2 webhook」由 webhook 触发
 
 ### 刮削
 
@@ -197,9 +272,11 @@ Amane 支持自动识别分集文件名, 目前支持以下几种常见标记:
 
 ### 整理
 
-整理是将文件按路径模板放置到正确位置:
+整理是将已刮削文件按路径模板放置到正确位置:
 
 - 目前仅支持手动触发
+- 库页面的整理只入队整理任务, 且跳过规则命中的行; 黑名单与过小视频只进清理清单, 由用户在「清理无效文件」里确认后删除
+- 文件表勾选后的批量整理只整理所选的单条索引行, 不是以目录为单位, 也不产出清理清单
 - 整理时会自动下载缺失的资源 (如海报)
 
 ## 多库支持

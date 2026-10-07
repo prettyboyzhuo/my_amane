@@ -12,11 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActorsRouteImport } from './routes/actors'
 import { Route as CatalogRouteImport } from './routes/catalog'
+import { Route as ClientRouteImport } from './routes/client'
 import { Route as FeedsRouteImport } from './routes/feeds'
 import { Route as LibrariesRouteImport } from './routes/libraries'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as MetaRouteImport } from './routes/meta'
+import { Route as NetworkRouteImport } from './routes/network'
 import { Route as PluginsRouteImport } from './routes/plugins'
+import { Route as SavedQueriesRouteImport } from './routes/saved-queries'
 import { Route as SchedulesRouteImport } from './routes/schedules'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TasksRouteImport } from './routes/tasks'
@@ -30,6 +33,7 @@ import { Route as LibrariesIndexRouteImport } from './routes/libraries.index'
 import { Route as LibrariesLibraryIdRouteImport } from './routes/libraries.$libraryId'
 import { Route as MetaIndexRouteImport } from './routes/meta.index'
 import { Route as MetaMetadataIdRouteImport } from './routes/meta.$metadataId'
+import { Route as SavedQueriesIndexRouteImport } from './routes/saved-queries.index'
 import { Route as SavedQueriesQueryIdRouteImport } from './routes/saved-queries.$queryId'
 import { Route as CatalogKindFacetIdRouteImport } from './routes/catalog.$kind_.$facetId'
 
@@ -46,6 +50,11 @@ const ActorsRoute = ActorsRouteImport.update({
 const CatalogRoute = CatalogRouteImport.update({
   id: '/catalog',
   path: '/catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientRoute = ClientRouteImport.update({
+  id: '/client',
+  path: '/client',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FeedsRoute = FeedsRouteImport.update({
@@ -68,9 +77,19 @@ const MetaRoute = MetaRouteImport.update({
   path: '/meta',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NetworkRoute = NetworkRouteImport.update({
+  id: '/network',
+  path: '/network',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PluginsRoute = PluginsRouteImport.update({
   id: '/plugins',
   path: '/plugins',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SavedQueriesRoute = SavedQueriesRouteImport.update({
+  id: '/saved-queries',
+  path: '/saved-queries',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SchedulesRoute = SchedulesRouteImport.update({
@@ -138,10 +157,15 @@ const MetaMetadataIdRoute = MetaMetadataIdRouteImport.update({
   path: '/$metadataId',
   getParentRoute: () => MetaRoute,
 } as any)
+const SavedQueriesIndexRoute = SavedQueriesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SavedQueriesRoute,
+} as any)
 const SavedQueriesQueryIdRoute = SavedQueriesQueryIdRouteImport.update({
-  id: '/saved-queries/$queryId',
-  path: '/saved-queries/$queryId',
-  getParentRoute: () => rootRouteImport,
+  id: '/$queryId',
+  path: '/$queryId',
+  getParentRoute: () => SavedQueriesRoute,
 } as any)
 const CatalogKindFacetIdRoute = CatalogKindFacetIdRouteImport.update({
   id: '/$kind_/$facetId',
@@ -153,11 +177,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/actors': typeof ActorsRouteWithChildren
   '/catalog': typeof CatalogRouteWithChildren
+  '/client': typeof ClientRoute
   '/feeds': typeof FeedsRouteWithChildren
   '/libraries': typeof LibrariesRouteWithChildren
   '/logs': typeof LogsRoute
   '/meta': typeof MetaRouteWithChildren
+  '/network': typeof NetworkRoute
   '/plugins': typeof PluginsRoute
+  '/saved-queries': typeof SavedQueriesRouteWithChildren
   '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
@@ -172,11 +199,14 @@ export interface FileRoutesByFullPath {
   '/feeds/': typeof FeedsIndexRoute
   '/libraries/': typeof LibrariesIndexRoute
   '/meta/': typeof MetaIndexRoute
+  '/saved-queries/': typeof SavedQueriesIndexRoute
   '/catalog/$kind/$facetId': typeof CatalogKindFacetIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/client': typeof ClientRoute
   '/logs': typeof LogsRoute
+  '/network': typeof NetworkRoute
   '/plugins': typeof PluginsRoute
   '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
@@ -192,6 +222,7 @@ export interface FileRoutesByTo {
   '/feeds': typeof FeedsIndexRoute
   '/libraries': typeof LibrariesIndexRoute
   '/meta': typeof MetaIndexRoute
+  '/saved-queries': typeof SavedQueriesIndexRoute
   '/catalog/$kind/$facetId': typeof CatalogKindFacetIdRoute
 }
 export interface FileRoutesById {
@@ -199,11 +230,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/actors': typeof ActorsRouteWithChildren
   '/catalog': typeof CatalogRouteWithChildren
+  '/client': typeof ClientRoute
   '/feeds': typeof FeedsRouteWithChildren
   '/libraries': typeof LibrariesRouteWithChildren
   '/logs': typeof LogsRoute
   '/meta': typeof MetaRouteWithChildren
+  '/network': typeof NetworkRoute
   '/plugins': typeof PluginsRoute
+  '/saved-queries': typeof SavedQueriesRouteWithChildren
   '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
@@ -218,6 +252,7 @@ export interface FileRoutesById {
   '/feeds/': typeof FeedsIndexRoute
   '/libraries/': typeof LibrariesIndexRoute
   '/meta/': typeof MetaIndexRoute
+  '/saved-queries/': typeof SavedQueriesIndexRoute
   '/catalog/$kind_/$facetId': typeof CatalogKindFacetIdRoute
 }
 export interface FileRouteTypes {
@@ -226,11 +261,14 @@ export interface FileRouteTypes {
     | '/'
     | '/actors'
     | '/catalog'
+    | '/client'
     | '/feeds'
     | '/libraries'
     | '/logs'
     | '/meta'
+    | '/network'
     | '/plugins'
+    | '/saved-queries'
     | '/schedules'
     | '/settings'
     | '/tasks'
@@ -245,11 +283,14 @@ export interface FileRouteTypes {
     | '/feeds/'
     | '/libraries/'
     | '/meta/'
+    | '/saved-queries/'
     | '/catalog/$kind/$facetId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/client'
     | '/logs'
+    | '/network'
     | '/plugins'
     | '/schedules'
     | '/settings'
@@ -265,17 +306,21 @@ export interface FileRouteTypes {
     | '/feeds'
     | '/libraries'
     | '/meta'
+    | '/saved-queries'
     | '/catalog/$kind/$facetId'
   id:
     | '__root__'
     | '/'
     | '/actors'
     | '/catalog'
+    | '/client'
     | '/feeds'
     | '/libraries'
     | '/logs'
     | '/meta'
+    | '/network'
     | '/plugins'
+    | '/saved-queries'
     | '/schedules'
     | '/settings'
     | '/tasks'
@@ -290,6 +335,7 @@ export interface FileRouteTypes {
     | '/feeds/'
     | '/libraries/'
     | '/meta/'
+    | '/saved-queries/'
     | '/catalog/$kind_/$facetId'
   fileRoutesById: FileRoutesById
 }
@@ -297,15 +343,17 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActorsRoute: typeof ActorsRouteWithChildren
   CatalogRoute: typeof CatalogRouteWithChildren
+  ClientRoute: typeof ClientRoute
   FeedsRoute: typeof FeedsRouteWithChildren
   LibrariesRoute: typeof LibrariesRouteWithChildren
   LogsRoute: typeof LogsRoute
   MetaRoute: typeof MetaRouteWithChildren
+  NetworkRoute: typeof NetworkRoute
   PluginsRoute: typeof PluginsRoute
+  SavedQueriesRoute: typeof SavedQueriesRouteWithChildren
   SchedulesRoute: typeof SchedulesRoute
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRoute
-  SavedQueriesQueryIdRoute: typeof SavedQueriesQueryIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -329,6 +377,13 @@ declare module '@tanstack/react-router' {
       path: '/catalog'
       fullPath: '/catalog'
       preLoaderRoute: typeof CatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client': {
+      id: '/client'
+      path: '/client'
+      fullPath: '/client'
+      preLoaderRoute: typeof ClientRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/feeds': {
@@ -359,11 +414,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MetaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/network': {
+      id: '/network'
+      path: '/network'
+      fullPath: '/network'
+      preLoaderRoute: typeof NetworkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/plugins': {
       id: '/plugins'
       path: '/plugins'
       fullPath: '/plugins'
       preLoaderRoute: typeof PluginsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/saved-queries': {
+      id: '/saved-queries'
+      path: '/saved-queries'
+      fullPath: '/saved-queries'
+      preLoaderRoute: typeof SavedQueriesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/schedules': {
@@ -457,12 +526,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MetaMetadataIdRouteImport
       parentRoute: typeof MetaRoute
     }
+    '/saved-queries/': {
+      id: '/saved-queries/'
+      path: '/'
+      fullPath: '/saved-queries/'
+      preLoaderRoute: typeof SavedQueriesIndexRouteImport
+      parentRoute: typeof SavedQueriesRoute
+    }
     '/saved-queries/$queryId': {
       id: '/saved-queries/$queryId'
-      path: '/saved-queries/$queryId'
+      path: '/$queryId'
       fullPath: '/saved-queries/$queryId'
       preLoaderRoute: typeof SavedQueriesQueryIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SavedQueriesRoute
     }
     '/catalog/$kind_/$facetId': {
       id: '/catalog/$kind_/$facetId'
@@ -540,19 +616,35 @@ const MetaRouteChildren: MetaRouteChildren = {
 
 const MetaRouteWithChildren = MetaRoute._addFileChildren(MetaRouteChildren)
 
+interface SavedQueriesRouteChildren {
+  SavedQueriesQueryIdRoute: typeof SavedQueriesQueryIdRoute
+  SavedQueriesIndexRoute: typeof SavedQueriesIndexRoute
+}
+
+const SavedQueriesRouteChildren: SavedQueriesRouteChildren = {
+  SavedQueriesQueryIdRoute: SavedQueriesQueryIdRoute,
+  SavedQueriesIndexRoute: SavedQueriesIndexRoute,
+}
+
+const SavedQueriesRouteWithChildren = SavedQueriesRoute._addFileChildren(
+  SavedQueriesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActorsRoute: ActorsRouteWithChildren,
   CatalogRoute: CatalogRouteWithChildren,
+  ClientRoute: ClientRoute,
   FeedsRoute: FeedsRouteWithChildren,
   LibrariesRoute: LibrariesRouteWithChildren,
   LogsRoute: LogsRoute,
   MetaRoute: MetaRouteWithChildren,
+  NetworkRoute: NetworkRoute,
   PluginsRoute: PluginsRoute,
+  SavedQueriesRoute: SavedQueriesRouteWithChildren,
   SchedulesRoute: SchedulesRoute,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRoute,
-  SavedQueriesQueryIdRoute: SavedQueriesQueryIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

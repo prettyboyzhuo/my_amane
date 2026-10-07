@@ -1,27 +1,11 @@
-"""Agent 上游模型工厂表测试."""
+"""Agent 运行时装配与 model_settings 测试. 协议映射在 tests/llm/test_model.py."""
 
 from __future__ import annotations
 
 import pytest
-from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 
-from amane.agent.runtime import build_agent, build_model, parse_session_thinking, resolve_model_settings
-from amane.config import AgentApiType, AgentConfig, AgentThinkingMode
-
-
-@pytest.mark.parametrize(
-    ("api_type", "model_cls"),
-    [
-        (AgentApiType.CHAT, OpenAIChatModel),
-        (AgentApiType.RESPONSE, OpenAIResponsesModel),
-        (AgentApiType.ANTHROPIC, AnthropicModel),
-    ],
-)
-def test_build_model_by_api_type(api_type: AgentApiType, model_cls: type) -> None:
-    config = AgentConfig(api_key="test-key", api_type=api_type, model="test-model")
-    model = build_model(config)
-    assert isinstance(model, model_cls)
+from amane.agent.runtime import build_agent, parse_session_thinking, resolve_model_settings
+from amane.config import AgentConfig, AgentThinkingMode
 
 
 @pytest.mark.parametrize(
@@ -69,9 +53,9 @@ def test_resolve_model_settings(
     session_thinking: AgentThinkingMode | None,
     expected_thinking: object | None,
 ) -> None:
-    config = AgentConfig(thinking=global_thinking)
+    config = AgentConfig(thinking=global_thinking, max_tokens=65_536)
     settings = resolve_model_settings(config, session_thinking=session_thinking)
-    assert settings.get("max_tokens") == 128_000
+    assert settings.get("max_tokens") == 65_536
     if expected_thinking is None:
         assert "thinking" not in settings
     else:

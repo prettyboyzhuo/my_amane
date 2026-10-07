@@ -13,9 +13,9 @@ from ..repo_types import _TASK_SORT_COLUMNS, _order_clause, _utcnow
 from .base import RepositoryMixinBase
 
 _ACTIVE_STATUSES = (TaskStatus.QUEUED, TaskStatus.RUNNING)
-# 互斥键在 payload 里; 同键已有 queued/running 则复用, 让 API / Agent / 链式入队共用.
+# 互斥键在 payload 里; 同键已有 queued/running 则复用, 不另建行.
+# 其余类型每次新建; 同库串行由 handler 内的锁保证.
 _EXCLUSIVE_FIELDS: dict[TaskType, str] = {
-    TaskType.ORGANIZE: "library_id",
     TaskType.ACTOR_SCRAPE: "actor_id",
 }
 
@@ -81,16 +81,14 @@ _IS_CHAIN_ROOT = (col(Task.root_task_id).is_(None)) | (col(Task.root_task_id) ==
 def _matching_root_ids(
     statuses: Iterable[TaskStatus] | None, task_types: Iterable[TaskType] | None
 ) -> SelectOfScalar[int]:
-    """筛选命中行对应的链根 id: 有 root 用 root, 裸任务用自身 id."""
+    """有 root 用 root, 裸任务用自身 id."""
     stmt = select(coalesce(col(Task.root_task_id), col(Task.id)))
     return _scope_tasks(stmt, statuses=statuses, task_types=task_types).distinct()
 
 
 async def _ids_with_external_descendants(session: AsyncSession, ids: Sequence[int]) -> set[int]:
-    """待删集合里, 存在不在该集合内的后裔的那些 id (含菱形多父).
-
-    整棵匹配子树可一次删除; 有未纳入本次删除的后裔时祖先跳过, 以免链根消失后
-    剩余子任务无法在列表中显示. QUEUED/RUNNING 后裔不在 DONE/FAILED 待删集合内, 同样挡住祖先.
+    """待删集合里存在集合外后裔的那些 id (含菱形多父).
+    有未纳入本次删除的后裔时祖先须跳过, 否则剩余子任务失去链根后无法在列表中显示.
     """
     id_set = set(ids)
     if not id_set:
@@ -159,7 +157,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             return await session.get(Task, task_id)
 
     async def claim_next_task(self) -> Task | None:
-        """原子性地认领优先级最高的排队任务."""
+        """认领优先级最高的 QUEUED 行, 标为 RUNNING."""
         async with self._session() as session:
             stmt = (
                 select(Task)
@@ -195,12 +193,7 @@ class TasksRepoMixin(RepositoryMixinBase):
         result: dict[str, object] | None,
         followups: Sequence[tuple[str, TaskType, dict[str, object], int]],
     ) -> list[Task]:
-        """一个事务内完成父任务并创建动态后继子任务 + TaskLink 边.
-
-        事务边界: 父完成与子创建原子 (提交前退出两者一起回滚, 提交后两者同时存在).
-        子任务创建复用 ``_insert_or_reuse`` 的入队互斥 (同 type 的活跃互斥键复用),
-        同父同 key 只留第一条, UNIQUE(parent, key) 兜底.
-        """
+        """父完成与子创建须在同一事务. 同父同 key 只留第一条, UNIQUE(parent, key) 拒绝重复."""
         created: list[Task] = []
         async with self._task_insert_lock, self._session() as session:
             task = await session.get(Task, task_id)
@@ -244,8 +237,25 @@ class TasksRepoMixin(RepositoryMixinBase):
             session.add(task)
             await session.commit()
 
+    async def fail_running_task(self, task_id: int, error: str) -> bool:
+        """仅当任务仍为 RUNNING 时标记失败; 返回是否命中.
+
+        取消回退与取消兜底使用: 已进入终态的任务不得被覆盖为 FAILED.
+        """
+        async with self._session() as session:
+            task = await session.get(Task, task_id)
+            if task is None or task.status != TaskStatus.RUNNING:
+                return False
+            task.status = TaskStatus.FAILED
+            task.error = error
+            task.retries += 1
+            task.finished_at = _utcnow()
+            session.add(task)
+            await session.commit()
+            return True
+
     async def fail_all_running_tasks(self) -> int:
-        """将所有 RUNNING 状态的任务标记为 FAILED (处理僵尸任务). 返回处理的任务数量."""
+        """将全部 RUNNING 标为 FAILED (进程重启后的僵尸任务)."""
         async with self._session() as session:
             stmt = (
                 update(Task)
@@ -275,8 +285,7 @@ class TasksRepoMixin(RepositoryMixinBase):
     ) -> list[Task]:
         async with self._session() as session:
             if roots_only and (statuses or task_types):
-                # roots_only 只约束「列表显示哪一层」, 不约束筛选范围:
-                # 筛选在 SQL 中匹配全部任务 (含子任务), 再 DISTINCT COALESCE(root, id) 还原链根.
+                # roots_only 只约束列表显示哪一层: 筛选仍匹配全部任务, 再还原链根.
                 stmt = select(Task).where(col(Task.id).in_(_matching_root_ids(statuses, task_types)), _IS_CHAIN_ROOT)
             else:
                 stmt = _scope_tasks(select(Task), statuses=statuses, task_types=task_types)
@@ -311,7 +320,7 @@ class TasksRepoMixin(RepositoryMixinBase):
     async def list_task_links(
         self, *, parent_task_id: int | None = None, child_task_id: int | None = None
     ) -> list[TaskLink]:
-        """查询后继关系边. 可按父或子过滤."""
+        """可按父或子过滤."""
         async with self._session() as session:
             stmt = select(TaskLink)
             if parent_task_id is not None:
@@ -323,7 +332,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             return list(result.all())
 
     async def list_tasks_by_root(self, root_task_id: int) -> list[Task]:
-        """一次取出同一链上的全部任务 (含根). root_task_id 沿袭在完成事务内写入."""
+        """同一链全部任务 (含根). root_task_id 在完成事务内写入."""
         async with self._session() as session:
             result = await session.exec(
                 select(Task).where(col(Task.root_task_id) == root_task_id).order_by(col(Task.created_at), col(Task.id))
@@ -333,7 +342,7 @@ class TasksRepoMixin(RepositoryMixinBase):
     async def list_children(
         self, parent_task_id: int, *, limit: int | None = None, offset: int = 0
     ) -> list[tuple[Task, str]]:
-        """按 TaskLink 出边取直接子任务 (保持边创建顺序), 每项带出边 key."""
+        """直接子任务, 按边创建顺序, 每项带出边 key."""
         async with self._session() as session:
             stmt = (
                 select(Task, col(TaskLink.key))
@@ -349,7 +358,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             return [(task, key) for task, key in rows]
 
     async def child_status_counts(self, parent_task_ids: Iterable[int]) -> dict[int, dict[TaskStatus, int]]:
-        """一次统计多个任务的直接后继按状态计数. 返回 {parent_id: {status: n}}."""
+        """返回 {parent_id: {status: n}}."""
         ids = list(parent_task_ids)
         if not ids:
             return {}
@@ -374,7 +383,7 @@ class TasksRepoMixin(RepositoryMixinBase):
         statuses: Iterable[TaskStatus] | None = None,
         task_types: Iterable[TaskType] | None = None,
     ) -> list[Task]:
-        """不分页取出匹配任务. task_ids 为空可迭代视为无匹配."""
+        """不分页. task_ids 为空可迭代视为无匹配."""
         if task_ids is not None:
             ids = list(task_ids)
             if not ids:
@@ -393,7 +402,7 @@ class TasksRepoMixin(RepositoryMixinBase):
         task_ids: Iterable[int] | None = None,
         task_types: Iterable[TaskType] | None = None,
     ) -> int:
-        """将匹配的 QUEUED 任务标为失败. 返回更新行数."""
+        """只标 QUEUED. 返回更新行数."""
         if task_ids is not None:
             ids = list(task_ids)
             if not ids:
@@ -419,11 +428,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             return result.rowcount
 
     async def retry_tasks(self, tasks: Sequence[Task]) -> list[Task]:
-        """按原 type/payload/priority 再入队, 克隆为无根裸任务 (顶层列表可见), 一次提交.
-
-        不保留原任务的链归属: 有链任务的重试是「独立重跑」, 原 FAILED 行留在原链上,
-        克隆自身无父无子, 完成后自成新链 — 避免与原有后继冲突.
-        """
+        """克隆为无根裸任务, 一次提交. 不保留原链归属, 否则会与原有后继冲突."""
         if not tasks:
             return []
         async with self._task_insert_lock, self._session() as session:
@@ -442,7 +447,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             return created
 
     async def delete_task(self, task_id: int) -> bool:
-        """删除任务. 有未纳入本次删除的后裔时拒绝, 以免剩余子任务失去链根后无法在列表中显示."""
+        """有未纳入本次删除的后裔时拒绝, 否则剩余子任务失去链根后无法在列表中显示."""
         async with self._session() as session:
             task = await session.get(Task, task_id)
             if task is None:
@@ -459,11 +464,7 @@ class TasksRepoMixin(RepositoryMixinBase):
             return True
 
     async def delete_tasks(self, task_ids: Iterable[int | None]) -> int:
-        """批量删除任务 (含相关后继边), 返回删除数量.
-
-        存在不在本次 id 集合内的后裔的行跳过, 其余照删.
-        整棵匹配子树可一次删除; 混合状态的祖先保留为链根.
-        """
+        """含相关后继边. 存在集合外后裔的行跳过."""
         ids = [i for i in task_ids if i is not None]
         if not ids:
             return 0

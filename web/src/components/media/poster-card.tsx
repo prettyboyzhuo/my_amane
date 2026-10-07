@@ -17,7 +17,7 @@ interface PosterCardProps {
   actorBirthday?: string | null;
 }
 
-/** 海报卡片 - 图片 + 番号 + 标题/演员/年月, 点击跳转详情. 加载失败退化为番号占位块. */
+/** 加载失败退化为番号占位块. */
 export function PosterCard({ item, actorBirthday }: PosterCardProps) {
   const { t } = useTranslation("metadata");
   const [errored, setErrored] = useState(false);

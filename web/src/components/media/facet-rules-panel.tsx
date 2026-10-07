@@ -1,10 +1,11 @@
-import { ActionIcon, Badge, Button, Group, Modal, Stack, Table, Text } from "@mantine/core";
+import { Badge, Button, Group, Modal, Stack, Table, Text } from "@mantine/core";
 import { IconListCheck, IconTrash } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listFacetRulesOptions } from "@/client/@tanstack/react-query.gen";
 import type { FacetKind } from "@/client/types.gen";
+import { HintedActionIcon } from "@/components/common/hinted-action-icon";
 
 export interface FacetRulesPanelProps {
   kind: FacetKind;
@@ -14,7 +15,7 @@ export interface FacetRulesPanelProps {
 
 /**
  * 爬取侧分类的用户规则 (别名 / 黑名单) 入口 + 弹窗.
- * 按钮挂在列表壳顶栏 (不随表体滚动), 弹窗内展示规则表并支持单条撤销.
+ * 按钮位于列表壳顶栏 (不随表体滚动), 弹窗内展示规则表并支持单条撤销.
  * user_tag 无规则, 由调用方自行不渲染.
  */
 export function FacetRulesPanel({ kind, onDeleteRule }: FacetRulesPanelProps) {
@@ -51,43 +52,46 @@ export function FacetRulesPanel({ kind, onDeleteRule }: FacetRulesPanelProps) {
               {t("manage.rulesEmpty")}
             </Text>
           ) : (
-            <Table highlightOnHover verticalSpacing="xs">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t("manage.ruleSource")}</Table.Th>
-                  <Table.Th>{t("manage.ruleAction")}</Table.Th>
-                  <Table.Th>{t("manage.ruleTarget")}</Table.Th>
-                  <Table.Th ta="right" w={80}>
-                    {t("columns.actions")}
-                  </Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rules.map((rule) => (
-                  <Table.Tr key={rule.id}>
-                    <Table.Td>{rule.source_name}</Table.Td>
-                    <Table.Td>
-                      <Badge variant="light" color={rule.action === "block" ? "red" : "blue"}>
-                        {rule.action === "block" ? t("manage.ruleBlock") : t("manage.ruleAlias")}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>{rule.target_name ?? "—"}</Table.Td>
-                    <Table.Td>
-                      <Group justify="flex-end">
-                        <ActionIcon
-                          variant="subtle"
-                          color="red"
-                          title={t("manage.ruleRemove")}
-                          onClick={() => onDeleteRule(rule.id)}
-                        >
-                          <IconTrash size={16} />
-                        </ActionIcon>
-                      </Group>
-                    </Table.Td>
+            // 四列宽度之和超过 375px 视口下的弹窗内容区; 交由滚动容器承担横向滚动, 避免列被压窄后逐字换行.
+            <Table.ScrollContainer minWidth={320}>
+              <Table highlightOnHover verticalSpacing="xs">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>{t("manage.ruleSource")}</Table.Th>
+                    <Table.Th>{t("manage.ruleAction")}</Table.Th>
+                    <Table.Th>{t("manage.ruleTarget")}</Table.Th>
+                    <Table.Th ta="right" w={80}>
+                      {t("columns.actions")}
+                    </Table.Th>
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+                </Table.Thead>
+                <Table.Tbody>
+                  {rules.map((rule) => (
+                    <Table.Tr key={rule.id}>
+                      <Table.Td>{rule.source_name}</Table.Td>
+                      <Table.Td>
+                        <Badge variant="light" color={rule.action === "block" ? "red" : "blue"}>
+                          {rule.action === "block" ? t("manage.ruleBlock") : t("manage.ruleAlias")}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{rule.target_name ?? "—"}</Table.Td>
+                      <Table.Td>
+                        <Group justify="flex-end">
+                          <HintedActionIcon
+                            variant="subtle"
+                            color="red"
+                            label={t("manage.ruleRemove")}
+                            onClick={() => onDeleteRule(rule.id)}
+                          >
+                            <IconTrash size={16} />
+                          </HintedActionIcon>
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
           )}
         </Stack>
       </Modal>

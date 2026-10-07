@@ -21,7 +21,6 @@ export function ageFromBirthday(
   return age >= 0 && age < 150 ? age : null;
 }
 
-/** 解析 YYYY / YYYY-MM / YYYY-MM-DD 为本地 Date; 失败返回 null. */
 export function parseDateLike(value: string | null | undefined): Date | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -36,7 +35,6 @@ export function parseDateLike(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** 出演时年龄: 生日相对影片发行日. */
 export function ageAtRelease(
   birthday: string | null | undefined,
   release: string | null | undefined,

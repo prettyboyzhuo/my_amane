@@ -1,10 +1,12 @@
 """测试 ResourceStore 的派生资源 (裁剪) 与就地超分能力."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
 
 from amane.media import ResourceStore, derived_locator
+from amane.media.resource_store import RESOURCE_URL_PREFIX, _is_placeholder_url, internal_url_hash
+from amane.net.http import RateLimiters, WebClient
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -147,3 +149,158 @@ class TestGetByUrlHash:
     @pytest.mark.asyncio
     async def test_missing_hash_returns_none(self, resource_store: ResourceStore):
         assert await resource_store.get_by_url_hash("deadbeefdeadbeef") is None
+
+
+class TestInternalUrl:
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("/api/resources/0123456789abcdef", "0123456789abcdef"),
+            ("/api/resources/0123456789abcdef?width=100", "0123456789abcdef"),
+            ("/api/resources/0123456789abcdef/extra", "0123456789abcdef"),
+            ("/api/resources/", None),
+            ("/api/resource/0123456789abcdef", None),
+            ("https://site/img.jpg", None),
+            ("", None),
+        ],
+    )
+    def test_parse(self, url: str, expected: str | None):
+        assert internal_url_hash(url) == expected
+
+    @pytest.mark.asyncio
+    async def test_acquire_resolves_without_request(
+        self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch
+    ):
+        async def producer(dest: Path) -> bool:
+            dest.write_bytes(b"derived-bytes")
+            return True
+
+        res = await resource_store.acquire_derived("https://s/t.jpg", "crop", "box:0,0,10,10", producer)
+        assert res is not None
+        client, session = _stub_client(monkeypatch, final_url="https://s/t.jpg")
+        internal = f"{RESOURCE_URL_PREFIX}/{ResourceStore.url_hash(res.url)}"
+
+        path = await resource_store.acquire(internal, client)
+
+        assert path == resource_store.full_path(res)
+        assert session.methods == []  # 内部 URL 不发请求
+        assert await resource_store.get_by_url(internal) is None  # 也不写记录
+
+    @pytest.mark.asyncio
+    async def test_acquire_internal_missing_returns_none(
+        self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch
+    ):
+        client, session = _stub_client(monkeypatch, final_url="https://s/t.jpg")
+        assert await resource_store.acquire(f"{RESOURCE_URL_PREFIX}/deadbeefdeadbeef", client) is None
+        assert session.methods == []
+
+
+class TestResolveSource:
+    @pytest.mark.asyncio
+    async def test_internal_returns_locator_and_path(
+        self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch
+    ):
+        async def producer(dest: Path) -> bool:
+            dest.write_bytes(b"x")
+            return True
+
+        res = await resource_store.acquire_derived("https://s/t.jpg", "crop", "0.7", producer)
+        assert res is not None
+        client, session = _stub_client(monkeypatch, final_url="https://s/t.jpg")
+        internal = f"{RESOURCE_URL_PREFIX}/{ResourceStore.url_hash(res.url)}"
+
+        src = await resource_store.resolve_source(internal, client)
+
+        assert src is not None
+        assert src.locator == res.url  # 底层 locator, 而非内部 URL
+        assert src.path == resource_store.full_path(res)
+        assert session.methods == []
+
+    @pytest.mark.asyncio
+    async def test_external_downloads(self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch):
+        client, session = _stub_client(monkeypatch, final_url=_REQUEST, content=b"jpeg-bytes")
+
+        src = await resource_store.resolve_source(_REQUEST, client)
+
+        assert src is not None
+        assert src.locator == _REQUEST
+        assert src.path.read_bytes() == b"jpeg-bytes"
+        assert session.methods[0] == "HEAD"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("url", ["data:image/png;base64,AAAA", "ftp://host/img.jpg", "img.jpg", ""])
+    async def test_rejects_other_schemes_without_request(
+        self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch, url: str
+    ):
+        client, session = _stub_client(monkeypatch, final_url="https://s/t.jpg")
+        assert await resource_store.resolve_source(url, client) is None
+        assert session.methods == []
+
+
+class _StubResponse:
+    status_code = 200
+    headers: ClassVar[dict[str, str]] = {}
+
+    def __init__(self, *, url: str, content: bytes = b"") -> None:
+        self.url = url
+        self.content = content
+
+
+class _StubSession:
+    """替换 ``WebClient._session``: 按方法返回预设应答, 记录出站方法."""
+
+    def __init__(self, *, final_url: str, content: bytes = b"") -> None:
+        self.methods: list[str] = []
+        self._response = _StubResponse(url=final_url, content=content)
+
+    async def request(self, method: str, url: str, **kwargs: Any) -> _StubResponse:
+        self.methods.append(method)
+        return self._response
+
+
+def _stub_client(
+    monkeypatch: pytest.MonkeyPatch, *, final_url: str, content: bytes = b""
+) -> tuple[WebClient, _StubSession]:
+    client = WebClient(limiters=RateLimiters(default_rate=100))
+    session = _StubSession(final_url=final_url, content=content)
+    monkeypatch.setattr(client, "_session", session)
+    return client, session
+
+
+_REQUEST = "https://pics.dmm.co.jp/digital/video/mide00030/mide00030pl.jpg"
+_PLACEHOLDER = "https://pics.dmm.com/mono/movie/n/now_printing/now_printing.jpg"
+
+
+class TestPlaceholderRedirect:
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            (_PLACEHOLDER, True),
+            ("https://imgsrc.dmm.com/pics/mono/movie/n/now_printing/now_printing.jpg?h=800&w=800", True),
+            (_REQUEST, False),
+            # 只匹配路径, 查询串里的同名字样不算
+            ("https://pics.dmm.com/redirect?to=/now_printing/now_printing.jpg", False),
+        ],
+    )
+    def test_detects_placeholder_path(self, url: str, expected: bool):
+        assert _is_placeholder_url(url) is expected
+
+    @pytest.mark.asyncio
+    async def test_acquire_rejects_placeholder_redirect(
+        self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch
+    ):
+        client, session = _stub_client(monkeypatch, final_url=_PLACEHOLDER, content=b"placeholder-bytes")
+
+        assert await resource_store.acquire(_REQUEST, client) is None
+        assert session.methods == ["HEAD"]  # 只探测, 不下载
+        assert await resource_store.get_by_url(_REQUEST) is None
+
+    @pytest.mark.asyncio
+    async def test_acquire_keeps_plain_redirect(self, resource_store: ResourceStore, monkeypatch: pytest.MonkeyPatch):
+        client, session = _stub_client(monkeypatch, final_url=_REQUEST, content=b"jpeg-bytes")
+
+        path = await resource_store.acquire(_REQUEST, client)
+
+        assert path is not None and path.read_bytes() == b"jpeg-bytes"
+        assert session.methods[0] == "HEAD" and "GET" in session.methods
+        assert await resource_store.get_by_url(_REQUEST) is not None

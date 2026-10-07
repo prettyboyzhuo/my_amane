@@ -10,22 +10,18 @@ from ..plugins.manager import PluginManager
 
 
 def get_runtime(request: Request) -> AppRuntime:
-    """获取共享的应用运行时实例"""
     return request.app.state.runtime
 
 
 def get_repository(request: Request) -> Repository:
-    """FastAPI 依赖 -- 提供 Repository 实例"""
     return request.app.state.runtime.repo
 
 
 def get_config_manager(request: Request) -> ConfigManager:
-    """FastAPI 依赖 -- 提供 ConfigManager 实例"""
     return request.app.state.runtime.config
 
 
 def get_agent_service(request: Request) -> AgentService:
-    """助理 Agent 门面; 未挂载时 503."""
     service = request.app.state.runtime.agent_service
     if service is None:
         raise HTTPException(503, detail="Amane 未初始化")
@@ -33,7 +29,6 @@ def get_agent_service(request: Request) -> AgentService:
 
 
 def get_plugin_manager(request: Request) -> PluginManager:
-    """External source plugin catalog for API routes."""
     manager = request.app.state.runtime.plugin_manager
     if manager is None:
         raise HTTPException(503, detail="来源插件目录未初始化")

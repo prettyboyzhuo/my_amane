@@ -8,7 +8,7 @@
  * 经 `nextHopProtocol` 探测实际协商协议: HTTP/2+ 单连接多路复用, 无连接池
  * 瓶颈, 直接放行; 仅 http/1.1 下把 proxy 图片请求限制为
  * MAX_CONCURRENT_PROXY_IMAGES 个并发, 始终给 API 请求留出连接.
- * 本地资源 (`/api/resources/*`) 秒回, 不走此队列.
+ * 本地资源 (`/api/resources/*`) 秒回, 不经此队列.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -58,12 +58,12 @@ export function releaseImageSlot(): void {
 }
 
 /**
- * 排队加载图片 URL: 拿到信号量前返回 null, 拿到后返回 url.
+ * 排队加载图片 URL: 取得信号量前返回 null, 取得后返回 url.
  *
  * 调用方在图片 onLoad / onError 时调用 release (请求结束, 让出连接);
- * 组件卸载时自动兜底释放 (浏览器会取消未挂载 img 的请求并释放连接).
+ * 组件卸载时自动释放 (浏览器会取消未挂载 img 的请求并释放连接).
  *
- * 设 src 即视为请求在途, 与 loading=lazy 互斥: lazy 会让屏外 img 占槽不发请求.
+ * 设置 src 即视为请求在途, 与 loading=lazy 互斥: lazy 会让屏外 img 占槽不发请求.
  * ProxyImage 只对邻近视口的 URL 才传入此 hook.
  */
 export function useQueuedImageUrl(url: string | null | undefined): {

@@ -4,11 +4,6 @@ import { LOG_LEVELS, type LogLevel } from "@/lib/exhaustive-maps";
 
 export { LOG_LEVELS, type LogLevel };
 
-/**
- * Flat log entry - all fields at the same level.
- * Known keys (id, timestamp, level, source, message) always present.
- * Extra structured fields (task_id, duration_s, url, etc.) are dynamic.
- */
 export interface LogEntry {
   id: number;
   /** Unix timestamp in ms (parsed from ISO string or generated at receive time) */
@@ -19,7 +14,6 @@ export interface LogEntry {
   [key: string]: unknown;
 }
 
-/** Keys that are always present and NOT considered "extra" fields */
 export const LOG_ENTRY_BASE_KEYS = new Set(["id", "timestamp", "level", "source", "message"]);
 
 interface LogState {
@@ -32,7 +26,6 @@ interface LogState {
 
 let nextId = 1;
 
-/** 将任意字符串窄化为 `LogLevel`, 不可识别时回退到 `"INFO"`. */
 function normalizeLevel(raw: unknown): LogLevel {
   const s = typeof raw === "string" ? raw : "";
   return isOneOf(LOG_LEVELS, s) ? s : "INFO";

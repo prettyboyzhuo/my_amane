@@ -1,12 +1,11 @@
 {
-  "title": "Scrape plugins",
+  "title": "Plugins",
   "loadError": "Failed to load plugins",
-  "empty": "No external scrape plugins installed",
+  "empty": "No external plugins installed",
   "save": "Save plugin configuration",
-  "sourceId": "Source ID",
+  "settings": "Plugin settings",
+  "settingsTitle": "{{name}} settings",
   "version": "Version",
-  "capabilities": "Capabilities",
-  "config": "Configuration",
   "path": "Source path",
   "enabled": "Enable plugin",
   "install": "Install plugin",
@@ -14,11 +13,18 @@
   "installHint": "Browse a server path to install, or upload a zip from this computer",
   "pickZip": "Upload zip",
   "uninstall": "Uninstall",
-  "uninstallConfirm": "Uninstall {{name}} ({{id}})? The source tree is removed; runtime data is kept.",
+  "uninstallConfirm": "Uninstall {{name}} ({{id}})? The source tree is removed; runtime data is kept",
   "reload": "Rescan",
   "installed": "Plugin installed",
   "uninstalled": "Plugin uninstalled",
   "reloaded": "Plugin catalog reloaded",
-  "routeHint": "After installing, add the source to the scrape route for each content type before it will be requested.",
-  "routeLink": "Open movie scraping settings"
+  "playbackOrder": "Playback source order",
+  "routeHint": "After installing a scrape plugin, add it in Type Routes before it is used",
+  "routeLink": "Open movie scraping settings",
+  "capabilities": {
+    "film_metadata": "Film metadata",
+    "playback": "Playback",
+    "actor_profile": "Actor profile",
+    "actor_image": "Actor image"
+  }
 }

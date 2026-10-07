@@ -1,8 +1,6 @@
 /**
- * 演员浏览筛选 - URL search / API query / 面板控件共用字段契约.
- *
- * 与后端 ``ActorBrowseParams`` / ``ListActorsData["query"]`` 对齐 (snake_case);
- * 仅 UI 导航态保留 ``q`` / ``view`` / ``page`` (见路由 schema).
+ * 与后端 ActorBrowseParams 对齐 (snake_case).
+ * 仅 UI 导航态保留 q / view / page.
  */
 
 import type { ParseKeys } from "i18next";
@@ -21,10 +19,10 @@ export const ACTOR_GENDERS = [
 /** `/actors` 未带 gender 时的默认筛选; 从 URL 剥掉. 显式清空写入 `[]` 表示不限. */
 export const DEFAULT_ACTOR_GENDER_FILTER = ["female"] as const satisfies readonly ActorGender[];
 
-/** URL 中与 API 同名的筛选键 (不含分页/排序/q). */
 export const ACTOR_FILTER_KEYS = [
   "has_person",
   "has_image",
+  "user_tag_id",
   "gender",
   "birthday_min",
   "birthday_max",
@@ -47,12 +45,14 @@ export type ActorTriBool = "true" | "false";
 
 /** 面板与芯片共用的筛选值.
  * gender 缺省为 ``DEFAULT_ACTOR_GENDER_FILTER``; `[]` 表示不限.
- * ``age_*`` 仅草稿 UI: 应用时换算为 ``birthday_*``, 不进 URL/API.
+ * ``age_*`` 仅草稿 UI: 应用时换算为 ``birthday_*``, 不写入 URL/API.
  */
 export type ActorFilterValues = {
   gender: ActorGender[];
   has_person?: ActorTriBool;
   has_image?: ActorTriBool;
+  /** 用户标签 id; 不设多选, 与面板其余单选控件同形 */
+  user_tag_id?: number;
   /** 周岁下界 - 仅面板草稿, 应用时 → birthday_max */
   age_min?: number;
   /** 周岁上界 - 仅面板草稿, 应用时 → birthday_min */
@@ -164,10 +164,10 @@ const optionalIntSchema = z.preprocess(
 );
 const optionalStrSchema = z.preprocess(coerceOptionalStr, z.string().optional());
 
-/** 与 API 筛选字段同构的 URL search 片段. */
 export const actorFilterSearchSchema = z.object({
   has_person: z.enum(["true", "false"]).optional(),
   has_image: z.enum(["true", "false"]).optional(),
+  user_tag_id: optionalIntSchema,
   gender: genderListSchema,
   birthday_min: optionalStrSchema,
   birthday_max: optionalStrSchema,
@@ -212,6 +212,7 @@ export function actorFilterValuesFromSearch(search: ActorsBrowseSearch): ActorFi
     gender: resolvedActorGenders(search),
     has_person: search.has_person,
     has_image: search.has_image,
+    user_tag_id: search.user_tag_id,
     birthday_min: search.birthday_min,
     birthday_max: search.birthday_max,
     height_min: search.height_min,
@@ -228,7 +229,6 @@ export function actorFilterValuesFromSearch(search: ActorsBrowseSearch): ActorFi
   };
 }
 
-/** URL search → API list query (含 q→search, 三态 bool). */
 export function actorListQueryFromSearch(search: ActorsBrowseSearch): ActorListQuery {
   const gender = resolvedActorGenders(search);
   return {
@@ -238,6 +238,7 @@ export function actorListQueryFromSearch(search: ActorsBrowseSearch): ActorListQ
     has_person: parseTriBool(search.has_person),
     has_image: parseTriBool(search.has_image),
     gender: gender.length > 0 ? gender : undefined,
+    user_tag_ids: search.user_tag_id != null ? [search.user_tag_id] : undefined,
     birthday_min: search.birthday_min,
     birthday_max: search.birthday_max,
     height_min: search.height_min,
@@ -265,6 +266,7 @@ export function mergeActorFilterPatch(
   }
   if ("has_person" in patch) next.has_person = patch.has_person;
   if ("has_image" in patch) next.has_image = patch.has_image;
+  if ("user_tag_id" in patch) next.user_tag_id = patch.user_tag_id;
   if ("birthday_min" in patch) next.birthday_min = patch.birthday_min;
   if ("birthday_max" in patch) next.birthday_max = patch.birthday_max;
   if ("height_min" in patch) next.height_min = patch.height_min;
@@ -281,7 +283,6 @@ export function mergeActorFilterPatch(
   return next;
 }
 
-/** 用完整筛选值替换 URL 中的筛选键 (面板"应用"). */
 export function replaceActorFilters(
   prev: ActorsBrowseSearch,
   filters: ActorFilterValues,
@@ -292,6 +293,7 @@ export function replaceActorFilters(
     gender: filters.gender,
     has_person: filters.has_person,
     has_image: filters.has_image,
+    user_tag_id: filters.user_tag_id,
     birthday_min: filters.birthday_min,
     birthday_max: filters.birthday_max,
     height_min: filters.height_min,
@@ -346,7 +348,7 @@ export function birthdayBoundsFromAge(
   };
 }
 
-/** 应用前规范化: 去空白; 若填了年龄则覆盖生日并丢掉 age_*. */
+/** 应用前规范化: 去空白; 若填了年龄则覆盖生日并删除 age_*. */
 function trimFilterText(value: string | undefined): string | undefined {
   if (value == null) return undefined;
   const text = value.trim();
@@ -369,6 +371,7 @@ export function normalizeActorFilterValues(
     gender: [...filters.gender],
     has_person: filters.has_person,
     has_image: filters.has_image,
+    user_tag_id: filters.user_tag_id,
     birthday_min: fromAge.birthday_min,
     birthday_max: fromAge.birthday_max,
     height_min: filters.height_min,
@@ -393,6 +396,7 @@ export function actorFiltersEqual(a: ActorFilterValues, b: ActorFilterValues): b
   return (
     a.has_person === b.has_person &&
     a.has_image === b.has_image &&
+    a.user_tag_id === b.user_tag_id &&
     a.age_min === b.age_min &&
     a.age_max === b.age_max &&
     a.birthday_min === b.birthday_min &&
@@ -411,7 +415,6 @@ export function actorFiltersEqual(a: ActorFilterValues, b: ActorFilterValues): b
   );
 }
 
-/** 用于 effect 依赖: 内容不变则指纹不变. */
 export function actorFilterFingerprint(filters: ActorFilterValues): string {
   return JSON.stringify(normalizeActorFilterValues(filters));
 }
@@ -440,6 +443,7 @@ function actorGenderFilterIsDefault(gender: readonly ActorGender[]): boolean {
 
 function hasNonGenderActorFilters(filters: ActorFilterValues): boolean {
   if (filters.has_person != null || filters.has_image != null) return true;
+  if (filters.user_tag_id != null) return true;
   if (filters.birthplace != null) return true;
   for (const range of ACTOR_RANGE_FILTERS) {
     if (filters[range.min] != null || filters[range.max] != null) return true;

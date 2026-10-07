@@ -1,7 +1,7 @@
 {
   "title": "Logs",
   "empty": "No logs",
-  "noMatch": "No matching log entries.",
+  "noMatch": "No matching log entries",
   "searchPlaceholder": "level:ERROR AND source:scraper",
   "levels": {
     "debug": "Debug",
@@ -10,18 +10,11 @@
     "error": "Error",
     "critical": "Critical"
   },
-  "columns": {
-    "timestamp": "Timestamp",
-    "level": "Level",
-    "source": "Source",
-    "message": "Message"
-  },
   "actions": {
     "autoScroll": "Auto Scroll",
     "clear": "Clear"
   },
   "queryHelp": {
-    "title": "Query Syntax (Lucene-like)",
     "fallback": "Plain text input falls back to fuzzy search"
   }
 }
